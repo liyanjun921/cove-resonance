@@ -255,6 +255,7 @@ export class PersonalOAuthServer {
         }
         const id = sealPendingRequest<PendingRequest>({ clientId, redirectUri, challenge,
           state: url.searchParams.get("state") ?? "", resource, created: Date.now() }, this.signingSecret);
+        console.info("[OAuth] authorize_form_created", JSON.stringify({ idLength: id.length, mode: "sealed_v1" }));
         this.loginForm(res, id);
         return true;
       }
@@ -264,9 +265,23 @@ export class PersonalOAuthServer {
         const pending = unsealPendingRequest<PendingRequest>(
           id, this.signingSecret, AUTH_REQUEST_LIFETIME);
         const consentHash = createHash("sha256").update(id).digest("hex");
-        if (!pending || this.usedConsentRequests.has(consentHash)) { bad(res, "expired_request", 400); return true; }
+        if (!pending || this.usedConsentRequests.has(consentHash)) {
+          const reason = !id ? "missing_request_id"
+            : !id.startsWith("v1.") ? "legacy_or_malformed_form"
+            : this.usedConsentRequests.has(consentHash) ? "already_consumed"
+            : "sealed_form_invalid_or_expired";
+          console.warn("[OAuth] approve_rejected", JSON.stringify({
+            reason, idLength: id.length, requestAgeStatus: "not_logged",
+          }));
+          bad(res, "expired_request", 400);
+          return true;
+        }
+        console.info("[OAuth] approve_form_valid", JSON.stringify({
+          ageSeconds: Math.max(0, Math.floor((Date.now() - pending.created) / 1000)),
+        }));
         if (Date.now() < this.lockedUntil) { this.loginForm(res, id, "locked"); return true; }
         if (!equal(form.get("password") ?? "", this.ownerPassword)) {
+          console.warn("[OAuth] owner_password_rejected");
           this.failedLogins += 1;
           if (this.failedLogins >= 5) { this.lockedUntil = Date.now() + 15 * 60_000; this.failedLogins = 0; }
           this.loginForm(res, id, "bad password");
@@ -274,6 +289,7 @@ export class PersonalOAuthServer {
         }
         this.failedLogins = 0;
         this.usedConsentRequests.set(consentHash, Date.now());
+        console.info("[OAuth] owner_authorization_approved");
         const code = opaqueToken();
         this.codes.set(createHash("sha256").update(code).digest("hex"), pending);
         const redirect = new URL(pending.redirectUri);
