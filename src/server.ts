@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { checkBearerAccess } from "./access.js";
 import { chmodSync, existsSync, unlinkSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -14,6 +15,8 @@ import { InMemoryEventQueue } from "./queue.js";
 
 const PORT = Number(process.env.PORT ?? 8787);
 const INGEST_TOKEN = process.env.BRIDGE_INGEST_TOKEN ?? "";
+const MCP_ACCESS_TOKEN = process.env.COVE_MCP_ACCESS_TOKEN ?? "";
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
 const UNIX_SOCKET = process.env.BRIDGE_UNIX_SOCKET?.trim() ?? "";
 const queue = new InMemoryEventQueue();
 const playbackState = new PlaybackStateStore();
@@ -62,7 +65,7 @@ async function readJson(req: IncomingMessage): Promise<unknown> {
 }
 
 function authorized(req: IncomingMessage): boolean {
-  return !INGEST_TOKEN || req.headers.authorization === `Bearer ${INGEST_TOKEN}`;
+  return checkBearerAccess(req.headers.authorization, INGEST_TOKEN, IS_PRODUCTION) === "allowed";
 }
 
 export function createHttpServer() {
@@ -137,6 +140,12 @@ export function createHttpServer() {
     const mcpMethods = new Set(["POST", "GET", "DELETE"]);
     const mcpProfile = MCP_PATHS.get(url.pathname);
     if (mcpProfile && mcpMethods.has(req.method)) {
+      const decision = checkBearerAccess(req.headers.authorization, MCP_ACCESS_TOKEN, IS_PRODUCTION);
+      if (decision !== "allowed") {
+        writeJson(res, decision === "not_configured" ? 503 : 401,
+          { error: decision === "not_configured" ? "mcp_access_not_configured" : "unauthorized" });
+        return;
+      }
       res.setHeader("Access-Control-Allow-Origin", "*");
       res.setHeader("Access-Control-Expose-Headers", "Mcp-Session-Id");
       const server = createMcpServer(queue, playbackState, togetherWorker, mcpProfile);
