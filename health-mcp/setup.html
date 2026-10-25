@@ -34,7 +34,7 @@ a{color:#285b92}small{font-size:12px;color:#66778c;line-height:1.7}
 <div id="after" hidden>
 <p><strong>扫码完成。</strong> 请确认下方亲友 UID 与授权的字段。随后手动把令牌存入 Render 的 <code>MI_TOKEN_B64</code> 私密环境变量；不要发到聊天、GitHub 或社交平台。</p>
 <pre id="relatives"></pre>
-<button id="export">复制一次性凭证，保存到 Render</button>
+<button id="export">显示一次性凭证</button><div id="manualCopy" hidden><textarea id="tokenText" readonly rows="6" spellcheck="false" style="width:100%;box-sizing:border-box;font-family:monospace;overflow-wrap:anywhere"></textarea><p><small>长按文本框，选择全选、复制。仅粘贴到 Render 的 MI_TOKEN_B64，不要截图或分享。</small></p><button id="selectAll" type="button">选中全部</button><button id="hideToken" type="button">隐藏并清空</button></div>
 <button class="alt" id="forget">清除临时登录数据</button>
 <p><small>二维码与登录结果仅暂存在服务器内存，重启或超时失效。此处的 Base64 不是加密，不要分享。你仍须给服务设置 MI_RELATIVE_UID 并完成 ChatGPT 认证。</small></p>
 </div>
