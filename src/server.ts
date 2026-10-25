@@ -8,6 +8,8 @@ import { buildBridgeEvent } from "./bridge/events.js";
 export { buildBridgeEvent } from "./bridge/events.js";
 import { MCP_PATHS } from "./profiles.js";
 import { listenerWakeHub } from "./listenerWake.js";
+import { externalReplyInbox } from "./externalReplyInbox.js";
+import { WakeWorker } from "./wakeWorker.js";
 import { PlaybackStateStore } from "./netease/playbackState.js";
 import { createTogetherWorker } from "./netease/togetherWorker.js";
 import { InMemoryEventQueue } from "./queue.js";
@@ -16,6 +18,7 @@ const PORT = Number(process.env.PORT ?? 8787);
 const INGEST_TOKEN = process.env.BRIDGE_INGEST_TOKEN ?? "";
 const UNIX_SOCKET = process.env.BRIDGE_UNIX_SOCKET?.trim() ?? "";
 const queue = new InMemoryEventQueue();
+const wakeWorker = new WakeWorker(queue);
 const playbackState = new PlaybackStateStore();
 
 function enqueueTogetherEvent(
@@ -62,7 +65,7 @@ async function readJson(req: IncomingMessage): Promise<unknown> {
 }
 
 function authorized(req: IncomingMessage): boolean {
-  return !INGEST_TOKEN || req.headers.authorization === `Bearer ${INGEST_TOKEN}`;
+  return Boolean(INGEST_TOKEN) && req.headers.authorization === `Bearer ${INGEST_TOKEN}`;
 }
 
 export function createHttpServer() {
@@ -125,12 +128,41 @@ export function createHttpServer() {
         const id = parsed.data.eventId ?? randomUUID();
         const event = buildBridgeEvent(id, parsed.data.source, parsed.data.text, createdAt);
         const created = queue.enqueue(event);
-        if (created) listenerWakeHub.wake(parsed.data.source);
+        if (created) {
+          if (!parsed.data.source.startsWith("wake.")) wakeWorker.noteUserActivity();
+          listenerWakeHub.wake(parsed.data.source);
+        }
         writeJson(res, created ? 201 : 200, { ok: true, created, eventId: id });
       } catch (error) {
         const message = error instanceof Error ? error.message : "invalid_request";
         writeJson(res, message === "request_too_large" ? 413 : 400, { error: message });
       }
+      return;
+    }
+
+    // Server-to-server only: NEVER put BRIDGE_INGEST_TOKEN in a browser.
+    if (req.method === "GET" && url.pathname === "/external/replies") {
+      if (!authorized(req)) {
+        writeJson(res, 401, { error: "unauthorized" });
+        return;
+      }
+      const eventId = url.searchParams.get("eventId")?.trim() ?? "";
+      if (!eventId || eventId.length > 200) {
+        writeJson(res, 400, { error: "invalid_event_id" });
+        return;
+      }
+      const reply = externalReplyInbox.read(eventId);
+      writeJson(res, reply ? 200 : 404, reply ?? { error: "reply_not_found" });
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/external/activity") {
+      if (!authorized(req)) {
+        writeJson(res, 401, { error: "unauthorized" });
+        return;
+      }
+      wakeWorker.noteUserActivity();
+      writeJson(res, 200, { ok: true });
       return;
     }
 
@@ -164,8 +196,9 @@ export function createHttpServer() {
 
 if (process.env.NODE_ENV !== "test") {
   createHttpServer().listen(PORT, "0.0.0.0", () => {
-    console.log("Cove Resonance listening on http://0.0.0.0:" + PORT + " (MCP: /mcp, /mcp/music)");
+    console.log("Cove Resonance listening on http://0.0.0.0:" + PORT + " (MCP: /mcp, /mcp/music, /mcp/bridge)");
     togetherWorker.start();
+    if (process.env.BRIDGE_WAKE_ENABLED === "true") wakeWorker.start();
   });
 
   if (UNIX_SOCKET) {
