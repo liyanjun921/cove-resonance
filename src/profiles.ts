@@ -8,7 +8,15 @@ export const MCP_PATHS = new Map<string, McpProfile>([
 
 export function acceptsProfileSource(profile: McpProfile, source: string): boolean {
   if (profile === "music") return source.startsWith("netease.");
-  if (profile === "bridge") return !source.startsWith("netease.");
+  if (profile === "bridge") {
+    if (source.startsWith("netease.")) return false;
+    // An unauthenticated, isolated test connector must not disclose real
+    // external events to unknown public MCP callers.
+    if (process.env.BRIDGE_ISOLATED_MODE === "true" && !process.env.BRIDGE_MCP_TOKEN) {
+      return source === "test.general-bridge";
+    }
+    return true;
+  }
   return true;
 }
 
