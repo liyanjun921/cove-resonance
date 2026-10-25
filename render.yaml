@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: cove-resonance-music
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: BRIDGE_PUBLIC_ORIGIN
+        sync: false
+      - key: COVE_MCP_ACCESS_TOKEN
+        generateValue: true
+      - key: BRIDGE_INGEST_TOKEN
+        generateValue: true
+      - key: NETEASE_COOKIE
+        sync: false
+      - key: TOGETHER_ENABLED
+        value: "true"
+    autoDeployTrigger: off
