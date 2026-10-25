@@ -1,0 +1,54 @@
+name: Health MCP live security smoke test
+on:
+  push:
+    branches: [feat/private-mi-fitness-health-mcp]
+    paths: ['.github/workflows/health-mcp-live-smoke.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Verify deployed health status and fail-closed MCP
+        env:
+          HEALTH_BASE: https://xlc-mi-fitness-health-mcp.onrender.com
+        run: |
+          python - <<'PY'
+          import json, os, time, urllib.request, urllib.error
+          base=os.environ["HEALTH_BASE"].rstrip("/")
+          def check(path, expected, parse_json=False):
+              url=base+path
+              for i in range(12):
+                  try:
+                      with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent":"health-mcp-smoke/1.0"}), timeout=30) as response:
+                          status=response.status
+                          body=response.read()
+                  except urllib.error.HTTPError as e:
+                      status=e.code
+                      body=e.read()
+                  except Exception as e:
+                      if i==11:
+                          raise
+                      print("Retry after transport error:", type(e).__name__)
+                      time.sleep(8)
+                      continue
+                  if status != expected:
+                      if i < 11 and status in (404, 502, 503, 504):
+                          time.sleep(8)
+                          continue
+                      raise RuntimeError(f"{path} returned HTTP {status}, expected {expected}")
+                  if parse_json:
+                      payload=json.loads(body)
+                      assert payload.get("ok") is True, payload
+                      assert payload.get("configured") is False, "No Xiaomi credentials have been authorized yet"
+                  print(path, "HTTP", status, "(success)")
+                  return
+              raise RuntimeError("No expected response")
+          check("/healthz", 200, parse_json=True)
+          check("/mcp", 401)
+          check("/mcp", 401)
+          PY
