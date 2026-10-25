@@ -56,8 +56,10 @@ test("legacy /mcp and scoped /mcp/music both initialize", async () => {
   await withServer(async (base) => {
     const legacy = await rpc(base, "/mcp", 1, "initialize");
     const music = await rpc(base, "/mcp/music", 2, "initialize");
+    const general = await rpc(base, "/mcp/bridge", 5, "initialize");
     assert.equal(legacy.result?.serverInfo?.name, "cove-resonance");
     assert.equal(music.result?.serverInfo?.name, "cove-resonance-music");
+    assert.equal(general.result?.serverInfo?.name, "cove-resonance-bridge");
   });
 });
 
@@ -98,5 +100,17 @@ test("stable widget resource URI is preserved", async () => {
       const uris = new Set((body.result?.resources ?? []).map((resource) => resource.uri));
       assert.equal(uris.has("ui://widget/cove-bridge.html"), true, path);
     }
+  });
+});
+
+test("dedicated bridge endpoint exposes Listener and reply without music account tools", async () => {
+  await withServer(async (base) => {
+    const listed = await rpc(base, "/mcp/bridge", 20, "tools/list");
+    const names = new Set((listed.result?.tools ?? []).map(tool => tool.name));
+    assert.equal(names.has("open_cove_bridge"), true);
+    assert.equal(names.has("cove_bridge_sync"), true);
+    assert.equal(names.has("cove_bridge_reply"), true);
+    assert.equal(names.has("netease_my_playlists"), false);
+    assert.equal(names.has("netease_together_now"), false);
   });
 });
