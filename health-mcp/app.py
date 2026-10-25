@@ -18,6 +18,7 @@ from typing import Any
 import uvicorn
 from mi_fitness import MiHealthClient
 from mcp.server.fastmcp import FastMCP
+from setup import setup_app
 
 
 MCP_SECRET = os.getenv("HEALTH_MCP_BEARER_TOKEN", "")
@@ -148,6 +149,8 @@ class PrivateGate:
 
     async def __call__(self, scope, receive, send):
         if scope["type"] == "http":
+            if scope.get("path", "") in ("/setup", "/setup/start", "/setup/status", "/setup/export", "/setup/forget"):
+                return await setup_app(scope, receive, send)
             if scope.get("path") == "/healthz":
                 payload = json.dumps({
                     "ok": True,
