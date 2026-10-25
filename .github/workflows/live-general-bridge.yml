@@ -47,6 +47,15 @@ jobs:
           assert not any(n.startswith("netease_") for n in names), names
           resources = {r["uri"] for r in rpc(3, "resources/list")["resources"]}
           assert "ui://widget/xlc-general-bridge.html" in resources, resources
+          resource=rpc(4, "resources/read", {"uri":"ui://widget/xlc-general-bridge.html"})
+          html=resource["contents"][0]["text"]
+          assert "general-test-send" in html and "ui/update-model-context" in html and "ui/message" in html
+          session=rpc(5, "tools/call", {"name":"cove_bridge_listener_session","arguments":{}})
+          stream=session["structuredContent"]["streamUrl"]
+          assert stream==base+"/listener/events", "Listener SSE origin does not match this isolated service"
+          for disallowed in ("/mcp", "/mcp/music"):
+              status, result=call(disallowed,"POST",{"jsonrpc":"2.0","id":9,"method":"tools/list","params":{}})
+              assert status==404 and result.get("error")=="profile_not_available", (disallowed,status,result)
           for path,method,body in [
               ("/events","POST",{"source":"test.general-bridge","text":"Access denied smoke test"}),
               ("/external/replies?eventId=missing","GET",None),
@@ -54,7 +63,7 @@ jobs:
           ]:
               status, result = call(path, method, body)
               assert status == 401, (path,status,result)
-          print("LIVE PASS: generic MCP init, Listener & fixed test tools, no NetEase tools, protected ingress/replies/activity")
+          print("LIVE PASS: isolated MCP/UI/SSE, no music endpoints, protected ingress/replies/activity")
           PY
 
       - name: Exercise live fixed-content generic reply round-trip
