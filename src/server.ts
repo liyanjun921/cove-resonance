@@ -94,13 +94,15 @@ export function createHttpServer() {
     }
 
     if (req.method === "GET" && url.pathname === "/") {
-      writeJson(res, 200, {
-        ok: true,
-        service: "cove-bridge",
-        version: "0.1.0",
-        queue: queue.status(),
-        listener: listenerWakeHub.status(),
-      });
+      writeJson(res, 200, IS_PRODUCTION
+        ? { ok: true, service: "cove-bridge", version: "0.2.0" }
+        : {
+            ok: true,
+            service: "cove-bridge",
+            version: "0.2.0",
+            queue: queue.status(),
+            listener: listenerWakeHub.status(),
+          });
       return;
     }
 
