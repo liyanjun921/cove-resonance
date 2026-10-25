@@ -16,6 +16,8 @@ import { InMemoryEventQueue } from "./queue.js";
 
 const PORT = Number(process.env.PORT ?? 8787);
 const INGEST_TOKEN = process.env.BRIDGE_INGEST_TOKEN ?? "";
+const ISOLATED_MODE = process.env.BRIDGE_ISOLATED_MODE === "true";
+const MCP_TOKEN = process.env.BRIDGE_MCP_TOKEN?.trim() ?? "";
 const UNIX_SOCKET = process.env.BRIDGE_UNIX_SOCKET?.trim() ?? "";
 const queue = new InMemoryEventQueue();
 const wakeWorker = new WakeWorker(queue);
@@ -124,6 +126,10 @@ export function createHttpServer() {
           writeJson(res, 400, { error: parsed.error.flatten() });
           return;
         }
+        if (ISOLATED_MODE && !MCP_TOKEN && parsed.data.source !== "test.general-bridge") {
+          writeJson(res, 403, { error: "test_only_mode" });
+          return;
+        }
         const createdAt = new Date().toISOString();
         const id = parsed.data.eventId ?? randomUUID();
         const event = buildBridgeEvent(id, parsed.data.source, parsed.data.text, createdAt);
@@ -169,6 +175,14 @@ export function createHttpServer() {
     const mcpMethods = new Set(["POST", "GET", "DELETE"]);
     const mcpProfile = MCP_PATHS.get(url.pathname);
     if (mcpProfile && mcpMethods.has(req.method)) {
+      if (ISOLATED_MODE && mcpProfile !== "bridge") {
+        writeJson(res, 404, { error: "profile_not_available" });
+        return;
+      }
+      if (ISOLATED_MODE && MCP_TOKEN && req.headers.authorization !== `Bearer ${MCP_TOKEN}`) {
+        writeJson(res, 401, { error: "unauthorized_mcp" });
+        return;
+      }
       res.setHeader("Access-Control-Allow-Origin", "*");
       res.setHeader("Access-Control-Expose-Headers", "Mcp-Session-Id");
       const server = createMcpServer(queue, playbackState, togetherWorker, mcpProfile);
@@ -197,7 +211,7 @@ export function createHttpServer() {
 if (process.env.NODE_ENV !== "test") {
   createHttpServer().listen(PORT, "0.0.0.0", () => {
     console.log("Cove Resonance listening on http://0.0.0.0:" + PORT + " (MCP: /mcp, /mcp/music, /mcp/bridge)");
-    togetherWorker.start();
+    if (!ISOLATED_MODE) togetherWorker.start();
     if (process.env.BRIDGE_WAKE_ENABLED === "true") wakeWorker.start();
   });
 
