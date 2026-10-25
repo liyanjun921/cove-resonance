@@ -1,5 +1,6 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { sealPendingRequest, unsealPendingRequest } from "./oauthPending.js";
 
 type RegisteredClient = { redirect_uris: string[]; expires: number };
 type PendingRequest = {
@@ -12,7 +13,7 @@ type RefreshGrant = { clientId: string; resource: string; expires: number };
 type OAuthConfig = { origin: string; ownerPassword: string; signingSecret: string };
 
 const MAX_BODY = 16 * 1024;
-const TEN_MINUTES = 10 * 60_000;
+const AUTH_REQUEST_LIFETIME = 20 * 60_000;
 const ACCESS_LIFETIME = 60 * 60_000;
 const REFRESH_LIFETIME = 30 * 24 * 60 * 60_000;
 const AUTH_CODE_LIFETIME = 2 * 60_000;
@@ -87,8 +88,9 @@ export class PersonalOAuthServer {
   private readonly clientsKey: Buffer;
   private readonly ownerPassword: string;
   private readonly origin: string;
+  private readonly signingSecret: string;
   private readonly codes = new Map<string, AuthorizationCode>();
-  private readonly pending = new Map<string, PendingRequest>();
+  private readonly usedConsentRequests = new Map<string, number>();
   private readonly access = new Map<string, AccessGrant>();
   private readonly refresh = new Map<string, RefreshGrant>();
   private failedLogins = 0;
@@ -99,6 +101,7 @@ export class PersonalOAuthServer {
     this.origin = config.origin.replace(/\/$/, "");
     this.ownerPassword = config.ownerPassword;
     this.clientsKey = Buffer.from(config.signingSecret);
+    this.signingSecret = config.signingSecret;
     this.enabled = this.origin.startsWith("https://") &&
       config.ownerPassword.length >= 16 && config.signingSecret.length >= 32;
   }
@@ -129,7 +132,7 @@ export class PersonalOAuthServer {
 
   private clean() {
     const now = Date.now();
-    for (const [key, value] of this.pending) if (value.created + TEN_MINUTES < now) this.pending.delete(key);
+    for (const [key, usedAt] of this.usedConsentRequests) if (usedAt + AUTH_REQUEST_LIFETIME < now) this.usedConsentRequests.delete(key);
     for (const [key, value] of this.codes) if (value.created + AUTH_CODE_LIFETIME < now) this.codes.delete(key);
     for (const [key, value] of this.access) if (value.expires < now) this.access.delete(key);
     for (const [key, value] of this.refresh) if (value.expires < now) this.refresh.delete(key);
@@ -161,7 +164,7 @@ export class PersonalOAuthServer {
 
   private loginForm(res: ServerResponse, id: string, message = "") {
     // Fixed HTML; never interpolate user-controlled OAuth values.
-    const safeId = /^[A-Za-z0-9_-]{43}$/.test(id) ? id : "";
+    const safeId = id.length <= 8192 && /^[A-Za-z0-9_.-]+$/.test(id) ? id : "";
     const msg = message ? "<p style=\"color:#9d3755\">Incorrect password or too many attempts. Please try later.</p>" : "";
     const html = '<!doctype html><html lang="en"><meta charset="utf-8">' +
       '<meta name="viewport" content="width=device-width, initial-scale=1">' +
@@ -250,17 +253,18 @@ export class PersonalOAuthServer {
             !PKCE_CHALLENGE.test(challenge) || !resource) {
           bad(res, "invalid_request"); return true;
         }
-        const id = opaqueToken();
-        this.pending.set(id, { clientId, redirectUri, challenge,
-          state: url.searchParams.get("state") ?? "", resource, created: Date.now() });
+        const id = sealPendingRequest<PendingRequest>({ clientId, redirectUri, challenge,
+          state: url.searchParams.get("state") ?? "", resource, created: Date.now() }, this.signingSecret);
         this.loginForm(res, id);
         return true;
       }
       if (p === "/oauth/approve" && req.method === "POST") {
         const form = await formData(req);
         const id = form.get("request_id") ?? "";
-        const pending = this.pending.get(id);
-        if (!pending) { bad(res, "expired_request", 400); return true; }
+        const pending = unsealPendingRequest<PendingRequest>(
+          id, this.signingSecret, AUTH_REQUEST_LIFETIME);
+        const consentHash = createHash("sha256").update(id).digest("hex");
+        if (!pending || this.usedConsentRequests.has(consentHash)) { bad(res, "expired_request", 400); return true; }
         if (Date.now() < this.lockedUntil) { this.loginForm(res, id, "locked"); return true; }
         if (!equal(form.get("password") ?? "", this.ownerPassword)) {
           this.failedLogins += 1;
@@ -269,7 +273,7 @@ export class PersonalOAuthServer {
           return true;
         }
         this.failedLogins = 0;
-        this.pending.delete(id);
+        this.usedConsentRequests.set(consentHash, Date.now());
         const code = opaqueToken();
         this.codes.set(createHash("sha256").update(code).digest("hex"), pending);
         const redirect = new URL(pending.redirectUri);
