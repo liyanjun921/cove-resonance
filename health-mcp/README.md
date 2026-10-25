@@ -20,6 +20,12 @@ Source SDK: [Misty02600/mi-fitness-python](https://github.com/Misty02600/mi-fitn
 4. Determine the main account's relative UID using the SDK's `get_relatives()` after accepting the invitation. Do **not** use a random account UID.
 5. Configure a separate HTTPS health server and secure client authentication. The existing music server is untouched.
 
+## After accepting the Mi Fitness invitation
+
+Run `verify_share.py` on a trusted machine after logging in with the **secondary** Xiaomi account using `login_once.py`. Its first pass returns the relative IDs without health values, allowing you to pick the correctly authorized account. Set `MI_RELATIVE_UID` privately and run again to verify that the consent includes exactly the requested sleep, heart-rate and step scopes. No actual health measurements are printed by this diagnostic.
+
+Do not confuse the Xiaomi account login QR with a relative-sharing invitation. Authorization in the Mi Fitness app is still required.
+
 ## Local development
 
 Needs Python 3.11+ (Dockerfile uses 3.12):
