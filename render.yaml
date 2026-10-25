@@ -11,6 +11,10 @@ services:
         sync: false
       - key: COVE_MCP_ACCESS_TOKEN
         generateValue: true
+      - key: COVE_OAUTH_PASSWORD
+        sync: false
+      - key: COVE_OAUTH_SIGNING_SECRET
+        generateValue: true
       - key: BRIDGE_INGEST_TOKEN
         generateValue: true
       - key: NETEASE_COOKIE
