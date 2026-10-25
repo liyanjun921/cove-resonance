@@ -1,0 +1,58 @@
+name: Live General Bridge smoke
+
+on:
+  push:
+    branches:
+      - feat/general-message-bridge-v1
+    paths:
+      - .github/workflows/live-general-bridge.yml
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Check isolated Render endpoint without private credentials
+        env:
+          GENERAL_BRIDGE_URL: https://xlc-general-bridge-lyj.onrender.com
+        run: |
+          python3 - <<'PY'
+          import json, os, time, urllib.request, urllib.error
+          base = os.environ["GENERAL_BRIDGE_URL"]
+          def call(path, method="GET", body=None):
+              data = json.dumps(body).encode() if body is not None else None
+              headers = {"Accept": "application/json, text/event-stream"}
+              if data is not None: headers["Content-Type"] = "application/json"
+              request = urllib.request.Request(base + path, data=data, headers=headers, method=method)
+              for attempt in range(4):
+                  try:
+                      with urllib.request.urlopen(request, timeout=110) as resp:
+                          return resp.status, json.loads(resp.read())
+                  except urllib.error.HTTPError as exc:
+                      return exc.code, json.loads(exc.read())
+                  except (TimeoutError, urllib.error.URLError) as exc:
+                      if attempt == 3: raise
+                      time.sleep(10)
+          def rpc(i, method, params={}):
+              status, obj = call("/mcp/bridge", "POST", {"jsonrpc":"2.0","id":i,"method":method,"params":params})
+              assert status == 200 and "result" in obj, (status, obj)
+              return obj["result"]
+          status, root = call("/")
+          assert status == 200 and root["ok"] == True, root
+          info = rpc(1, "initialize", {"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"bridge-live-smoke","version":"1.0"}})
+          assert info["serverInfo"]["name"] == "cove-resonance-bridge"
+          names = {t["name"] for t in rpc(2, "tools/list")["tools"]}
+          for required in ("open_cove_bridge", "cove_bridge_sync", "cove_bridge_reply", "cove_bridge_test_event", "cove_bridge_test_status"):
+              assert required in names, (required, names)
+          assert not any(n.startswith("netease_") for n in names), names
+          resources = {r["uri"] for r in rpc(3, "resources/list")["resources"]}
+          assert "ui://widget/xlc-general-bridge.html" in resources, resources
+          for path,method,body in [
+              ("/events","POST",{"source":"test.general-bridge","text":"Access denied smoke test"}),
+              ("/external/replies?eventId=missing","GET",None),
+              ("/external/activity","POST",{}),
+          ]:
+              status, result = call(path, method, body)
+              assert status == 401, (path,status,result)
+          print("LIVE PASS: generic MCP init, Listener & fixed test tools, no NetEase tools, protected ingress/replies/activity")
+          PY
