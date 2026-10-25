@@ -41,7 +41,7 @@ def token_env():
     return {
         "HEALTH_SETUP_SECRET": "test-secret-thirty-two-characters",
         "MI_RELATIVE_UID": "12345",
-        "MI_TOKEN_B64": base64.b64encode(b'{"test":"sdk-token"}').decode(),
+        "MI_TOKEN_B64": base64.b64encode(b'{"user_id":"test","service_token":"sdk-token"}').decode(),
     }
 
 
