@@ -1,11 +1,11 @@
-export type ReplyRoute = "netease.chatroom";
+export type ReplyRoute = "netease.chatroom" | "external.inbox";
 export type ReplyPolicy = "required" | "optional";
 export type BridgeStream = "conversation" | "state";
 
 export type BridgeEvent = {
   id: string;
   correlationId: string;
-  kind: "message";
+  kind: "message" | "wake";
   source: string;
   stream: BridgeStream;
   stateKey?: string;
