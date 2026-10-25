@@ -15,6 +15,7 @@ import time
 from urllib.parse import urlparse
 
 from mi_fitness import MiHealthClient, XiaomiAuth
+from token_codec import parse_token
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, PlainTextResponse
@@ -183,16 +184,11 @@ async def check_data(request: Request):
     if not relative.isdigit() or int(relative) <= 0:
         return JSONResponse({"ok": False, "code": "relative_uid_invalid"}, headers=HEADERS)
 
-    # The export from QR onboarding is a UTF-8 JSON file, base64-encoded.
-    try:
-        raw = base64.b64decode(encoded, validate=True)
-        parsed = json.loads(raw)
-        if not isinstance(parsed, dict):
-            raise ValueError("Invalid token shape")
-    except (ValueError, TypeError, UnicodeDecodeError):
-        return JSONResponse({"ok": False, "code": "token_invalid"}, headers=HEADERS)
-    except Exception:
-        return JSONResponse({"ok": False, "code": "token_invalid"}, headers=HEADERS)
+    # Accept the original QR export and common copy/paste wrapper formats.
+    # Only reveal the *format category*, not the credential or its length.
+    raw, token_code = parse_token(encoded)
+    if raw is None:
+        return JSONResponse({"ok": False, "code": token_code}, headers=HEADERS)
 
     fd, token_path = tempfile.mkstemp(prefix="mi-health-check-", suffix=".json")
     try:
