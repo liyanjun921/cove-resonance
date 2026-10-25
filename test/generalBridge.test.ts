@@ -60,3 +60,14 @@ test("wake worker respects silence, one-hour gap and quiet hours", () => {
   worker.noteUserActivity(noon + 110 * 60_000);
   assert.equal(worker.evaluate(noon + 111 * 60_000).reason, "recent_user_activity");
 });
+\nimport { buildListenerHtml } from "../src/listener-html.js";
+
+test("generic Listener has self-test buttons and original music widget stays unchanged", () => {
+  const generic = buildListenerHtml(true);
+  const original = buildListenerHtml();
+  assert.match(generic, /id="general-test-send"/);
+  assert.match(generic, /id="general-test-check"/);
+  assert.match(generic, /cove_bridge_test_event/);
+  assert.match(generic, /cove_bridge_test_status/);
+  assert.doesNotMatch(original, /id="general-test-send"/);
+});
