@@ -90,16 +90,23 @@ async def _query(kind: str, date: str) -> dict[str, Any]:
     day = _require_day(date)
     if not RELATIVE_UID:
         raise RuntimeError("Authorized Mi Fitness relative UID is not configured")
+    try:
+        relative_uid = int(RELATIVE_UID)
+        if relative_uid <= 0:
+            raise ValueError()
+    except ValueError as exc:
+        raise RuntimeError("Configured relative UID must be a positive integer") from exc
+    query_date = dt.date.fromisoformat(day)
     token_path = _token_file()
     async with MiHealthClient.from_token(token_path) as client:
         if kind == "sleep":
-            records = await client.get_sleep(RELATIVE_UID, day)
+            records = await client.get_sleep(relative_uid, query_date)
         elif kind == "heart_rate":
-            records = await client.get_heart_rate(RELATIVE_UID, day)
+            records = await client.get_heart_rate(relative_uid, query_date)
         elif kind == "steps":
-            records = await client.get_steps(RELATIVE_UID, day)
+            records = await client.get_steps(relative_uid, query_date)
         elif kind == "daily_summary":
-            records = await client.get_daily_summary(RELATIVE_UID, day)
+            records = await client.get_daily_summary(relative_uid, query_date)
         else:
             raise ValueError("Unsupported data type")
     return {"date": day, "kind": kind, "data": _serialize(records)}
