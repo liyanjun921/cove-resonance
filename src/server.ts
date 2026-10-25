@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { checkBearerAccess } from "./access.js";
+import { PersonalOAuthServer } from "./oauth.js";
 import { chmodSync, existsSync, unlinkSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -17,6 +18,11 @@ const PORT = Number(process.env.PORT ?? 8787);
 const INGEST_TOKEN = process.env.BRIDGE_INGEST_TOKEN ?? "";
 const MCP_ACCESS_TOKEN = process.env.COVE_MCP_ACCESS_TOKEN ?? "";
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
+const oauth = new PersonalOAuthServer({
+  origin: process.env.BRIDGE_PUBLIC_ORIGIN ?? "",
+  ownerPassword: process.env.COVE_OAUTH_PASSWORD ?? "",
+  signingSecret: process.env.COVE_OAUTH_SIGNING_SECRET ?? "",
+});
 const UNIX_SOCKET = process.env.BRIDGE_UNIX_SOCKET?.trim() ?? "";
 const queue = new InMemoryEventQueue();
 const playbackState = new PlaybackStateStore();
@@ -137,12 +143,15 @@ export function createHttpServer() {
       return;
     }
 
+    if (await oauth.handle(req, res, url)) return;
+
     const mcpMethods = new Set(["POST", "GET", "DELETE"]);
     const mcpProfile = MCP_PATHS.get(url.pathname);
     if (mcpProfile && mcpMethods.has(req.method)) {
       const decision = checkBearerAccess(req.headers.authorization, MCP_ACCESS_TOKEN, IS_PRODUCTION);
-      if (decision !== "allowed") {
-        writeJson(res, decision === "not_configured" ? 503 : 401,
+      if (decision !== "allowed" && !oauth.isAuthorized(req.headers.authorization, url.pathname)) {
+        if (oauth.enabled) oauth.challenge(res, url.pathname);
+        else writeJson(res, decision === "not_configured" ? 503 : 401,
           { error: decision === "not_configured" ? "mcp_access_not_configured" : "unauthorized" });
         return;
       }
