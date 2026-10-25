@@ -56,3 +56,39 @@ jobs:
               assert status == 401, (path,status,result)
           print("LIVE PASS: generic MCP init, Listener & fixed test tools, no NetEase tools, protected ingress/replies/activity")
           PY
+
+      - name: Exercise live fixed-content generic reply round-trip
+        env:
+          GENERAL_BRIDGE_URL: https://xlc-general-bridge-lyj.onrender.com
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request
+          base = os.environ["GENERAL_BRIDGE_URL"]
+          def call(path, method="GET", args=None):
+              req = urllib.request.Request(
+                  base + path,
+                  method=method,
+                  headers={"Content-Type":"application/json","Accept":"application/json, text/event-stream"},
+                  data=json.dumps(args).encode() if args is not None else None)
+              with urllib.request.urlopen(req, timeout=100) as response:
+                  return json.load(response)
+          def tool(i, name, args=None):
+              payload={"jsonrpc":"2.0","id":i,"method":"tools/call","params":{"name":name,"arguments":args or {}}}
+              result=call("/mcp/bridge","POST",payload)
+              assert "result" in result and "error" not in result, result
+              return result["result"]["structuredContent"]
+          status=call("/")
+          assert status["queue"]["pending"] == 0 and status["queue"]["reserved"] == 0, "Live queue not empty: do not intercept user's message"
+          generated=tool(10,"cove_bridge_test_event")
+          assert generated["queued"] and generated["source"]=="test.general-bridge", generated
+          event_id=generated["eventId"]
+          got=tool(11,"cove_bridge_wait",{"timeoutSeconds":2})
+          assert got["hasEvent"] and got["eventId"]==event_id and got["replyRoute"]=="external.inbox",got
+          ack=tool(12,"cove_bridge_wait_ack",{"eventId":event_id})
+          assert ack["acknowledged"],ack
+          result=tool(13,"cove_bridge_reply",{"eventId":event_id,"messages":["XLC live generic reply verified; no NetEase message sent."]})
+          assert result["completed"] and result["route"]=="external.inbox",result
+          finished=tool(14,"cove_bridge_test_status",{"eventId":event_id})
+          assert finished["completed"] and len(finished["messages"])==1,finished
+          print("LIVE ROUNDTRIP PASS: synthetic non-NetEase event -> MCP -> generic inbox response; official ChatGPT host/UI not exercised")
+          PY
