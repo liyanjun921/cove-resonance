@@ -30,7 +30,7 @@ export function createMcpServer(
     registerNeteaseAccountTools(server, neteaseAccountClient);
     registerNeteaseTogetherTools(server, playbackState, togetherWorker, queue, eventFilter);
   }
-  registerBridgeApp(server);
+  registerBridgeApp(server, profile === "bridge" ? queue : undefined);
   registerBridgeTools(server, queue, eventFilter, togetherWorker);
   registerBridgeWaitTool(server, queue, eventFilter);
 
