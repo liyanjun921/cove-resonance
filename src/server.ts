@@ -82,6 +82,20 @@ export function createHttpServer() {
     }
     const url = new URL(req.url, `http://${req.headers.host ?? "localhost"}`);
 
+    // Log only the request path/method/status for MCP and OAuth diagnostics.
+    // Never log headers, authorization codes, client IDs, cookies or query strings.
+    const tracePath = url.pathname;
+    if (tracePath === "/mcp" || tracePath === "/mcp/music" ||
+        tracePath.startsWith("/oauth/") || tracePath.startsWith("/.well-known/oauth-")) {
+      res.once("finish", () => {
+        console.info("[Cove HTTP]", JSON.stringify({
+          method: req.method,
+          path: tracePath,
+          status: res.statusCode,
+        }));
+      });
+    }
+
     if (req.method === "OPTIONS") {
       res.writeHead(204, {
         "Access-Control-Allow-Origin": "*",
