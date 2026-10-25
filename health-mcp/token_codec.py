@@ -40,7 +40,7 @@ def parse_token(value: str) -> tuple[bytes | None, str]:
             s = obj.strip()
             continue
 
-        compact = re.sub(r"\\s+", "", s)
+        compact = re.sub(r"\s+", "", s)
         try:
             raw = base64.b64decode(compact, validate=True)
         except (ValueError, binascii.Error):
