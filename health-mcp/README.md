@@ -26,6 +26,20 @@ Run `verify_share.py` on a trusted machine after logging in with the **secondary
 
 Do not confuse the Xiaomi account login QR with a relative-sharing invitation. Authorization in the Mi Fitness app is still required.
 
+## Browser-only Xiaomi login (no terminal required)
+
+The optional HTTPS page `/setup` is disabled until you personally set a secret:
+- Open the dedicated health service in Render → **Environment**, add `HEALTH_SETUP_SECRET` with a new random password of **at least 24 characters**; never send it in chat or commit it to GitHub.
+- Deploy/restart the service to apply that new secret.
+- Visit `https://xlc-mi-fitness-health-mcp.onrender.com/setup` and enter your private `HEALTH_SETUP_SECRET`.
+- Click **获取小号登录二维码** and scan with the secondary Xiaomi account using the system camera on another device. Do not scan using your primary account.
+- Once granted, the page shows relative UID(s) and the shared field names (without medical measurements). Verify the right primary relative.
+- Use **复制一次性凭证** and immediately paste the base64 value into Render Environment variable `MI_TOKEN_B64`, then set `MI_RELATIVE_UID` to the consenting primary account's relative UID. Base64 is not encryption; do not paste it into chat.
+- On Render restart, use `/healthz` (which only exposes a configured boolean) to check that all server secrets exist. Do not configure the ChatGPT integration until private client authentication is implemented and tested.
+- After successful configuration, remove or rotate `HEALTH_SETUP_SECRET` to disable the page. The in-memory credentials disappear on restart or after ten minutes.
+
+The setup page never copies Xiaomi tokens to GitHub. It does briefly keep the secondary-account token in memory and shows it to an administrator with the secret; only enable it while actively onboarding. Do not use any shared passwords for this setup page.
+
 ## Local development
 
 Needs Python 3.11+ (Dockerfile uses 3.12):
