@@ -55,6 +55,7 @@ a{color:#285b92}small{font-size:12px;color:#66778c;line-height:1.7}
    return data;
  }
  function render(d){
+   if(d.phase!=='authorized' && typeof clearToken==='function') clearToken();
    after.hidden=d.phase!=='authorized';
    qr.style.display=d.phase==='qr' && d.qr_image_url?'block':'none';
    if(d.phase==='qr' && d.qr_image_url) qr.src=d.qr_image_url;
@@ -112,15 +113,28 @@ a{color:#285b92}small{font-size:12px;color:#66778c;line-height:1.7}
    }catch(e){target.textContent='检测未完成：'+e.message;}
  };
 
+ const manualCopy=document.getElementById('manualCopy');
+ const tokenText=document.getElementById('tokenText');
+ function clearToken(){tokenText.value='';manualCopy.hidden=true;}
  document.getElementById('export').onclick=async()=>{
+   clearToken();
    try{
      const d=await call('/setup/export','POST');
-     if(!navigator.clipboard?.writeText) throw new Error('浏览器不支持复制，请换用新版 Safari 或 Chrome。');
-     await navigator.clipboard.writeText(d.token_base64);
-     status.textContent='私密令牌已复制。请立刻打开 Render → Environment，新增 MI_TOKEN_B64 并粘贴保存。不要粘进聊天。';
-   }catch(e){status.textContent=e.message;}
+     if(typeof d.token_base64!=='string' || !d.token_base64) throw new Error('没有可供显示的凭证');
+     tokenText.value=d.token_base64;
+     manualCopy.hidden=false;
+     status.textContent='完整凭证已显示在下方文本框。长按全选，再复制到 Render。';
+   }catch(e){status.textContent='无法显示：'+e.message;}
  };
+ document.getElementById('selectAll').onclick=()=>{
+   tokenText.focus();
+   tokenText.select();
+   tokenText.setSelectionRange(0,tokenText.value.length);
+ };
+ document.getElementById('hideToken').onclick=clearToken;
+ window.addEventListener('pagehide',clearToken);
  document.getElementById('forget').onclick=async()=>{
+   clearToken();
    try {await call('/setup/forget','POST');await check();}
    catch(e){status.textContent=e.message;}
  };
