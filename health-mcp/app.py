@@ -149,7 +149,7 @@ class PrivateGate:
 
     async def __call__(self, scope, receive, send):
         if scope["type"] == "http":
-            if scope.get("path", "") in ("/setup", "/setup/start", "/setup/status", "/setup/export", "/setup/forget"):
+            if scope.get("path", "") in ("/setup", "/setup/start", "/setup/status", "/setup/export", "/setup/forget", "/setup/check-data"):
                 return await setup_app(scope, receive, send)
             if scope.get("path") == "/healthz":
                 payload = json.dumps({
