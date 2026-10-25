@@ -1,6 +1,6 @@
 const FALLBACK_POLL_MS = 60_000;
 
-export function buildListenerHtml(): string {
+export function buildListenerHtml(enableGeneralTest = false): string {
   return `<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -22,10 +22,13 @@ export function buildListenerHtml(): string {
   <div class="title">Cove Bridge</div>
   <div id="status" class="status">已挂载，尚未监听。</div>
   <button id="toggle" type="button" disabled>正在连接…</button>
+  ${enableGeneralTest ? '<button id="general-test-send" type="button" disabled>发送通用测试消息</button><button id="general-test-check" type="button" disabled>检查测试回复</button><div id="general-test-result" class="status" aria-live="polite"></div>' : ''}
 </main>
 <script>
 (() => {
   const FALLBACK_POLL_MS = ${FALLBACK_POLL_MS};
+  const generalTestEnabled = ${enableGeneralTest ? "true" : "false"};
+  let currentGeneralTestId = '';
   const pending = new Map();
   let rpcId = 0;
   let timer = 0;
@@ -189,6 +192,7 @@ export function buildListenerHtml(): string {
     toggleEl.disabled = false;
     toggleEl.textContent = '开始监听';
     setStatus('已挂载，尚未监听。');
+    if (generalTestEnabled) document.getElementById('general-test-send').disabled = false;
   }
 
   async function callTool(name, args) {
@@ -412,6 +416,49 @@ export function buildListenerHtml(): string {
     if (listening) stopListening();
     else startListening();
   });
+
+  if (generalTestEnabled) {
+    const sendButton = document.getElementById('general-test-send');
+    const checkButton = document.getElementById('general-test-check');
+    const result = document.getElementById('general-test-result');
+    sendButton.addEventListener('click', async () => {
+      if (!bridgeReady) return;
+      if (!listening) {
+        result.textContent = '请先点击「开始监听」，再发送测试。';
+        return;
+      }
+      sendButton.disabled = true;
+      try {
+        const response = await callTool('cove_bridge_test_event', {});
+        const data = response && response.structuredContent;
+        if (!data || !data.queued || !data.eventId) throw new Error('Test event not accepted');
+        currentGeneralTestId = String(data.eventId);
+        checkButton.disabled = false;
+        result.textContent = '已创建非网易云测试事件。等 ChatGPT 出现确认弹窗时点击允许，然后检查测试回复。';
+        void syncOnce();
+      } catch (error) {
+        result.textContent = '测试事件失败：' + (error.message || String(error));
+      } finally {
+        sendButton.disabled = false;
+      }
+    });
+    checkButton.addEventListener('click', async () => {
+      if (!currentGeneralTestId) return;
+      checkButton.disabled = true;
+      try {
+        const response = await callTool('cove_bridge_test_status', { eventId: currentGeneralTestId });
+        const data = response && response.structuredContent;
+        if (!data) throw new Error('No status returned');
+        result.textContent = data.completed
+          ? '通用收件箱已收到 AI 回复：' + (Array.isArray(data.messages) ? data.messages.join(' / ') : '')
+          : '尚未收到完整回复。请确认 ChatGPT 已处理测试消息并调用通用回复工具。';
+      } catch (error) {
+        result.textContent = '检查失败：' + (error.message || String(error));
+      } finally {
+        checkButton.disabled = false;
+      }
+    });
+  }
 
   initialize().catch((error) => {
     toggleEl.disabled = true;
