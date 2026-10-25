@@ -9,6 +9,7 @@ import { buildListenerHtml } from "../listener-html.js";
 import { listenerWakeHub } from "../listenerWake.js";
 
 export const RESOURCE_URI = "ui://widget/cove-bridge.html";
+let lastGenericTestAt = 0;
 const PUBLIC_ORIGIN = process.env.BRIDGE_PUBLIC_ORIGIN?.trim()
   || "http://localhost:" + (process.env.PORT ?? "8787");
 
@@ -100,7 +101,6 @@ export function registerBridgeApp(server: McpServer, testQueue?: InMemoryEventQu
   // fictional testing profile. No user-supplied text or external secrets.
   if (testQueue) {
     const queue = testQueue;
-    let lastTestAt = 0;
     server.registerTool(
       "cove_bridge_test_event",
       {
@@ -116,7 +116,7 @@ export function registerBridgeApp(server: McpServer, testQueue?: InMemoryEventQu
         _meta: { ui: { visibility: ["app"] } },
       },
       async () => {
-        if (Date.now() - lastTestAt < 15000) throw new Error("Please wait 15 seconds between tests.");
+        if (Date.now() - lastGenericTestAt < 15000) throw new Error("Please wait 15 seconds between tests.");
         const eventId = "test:" + randomUUID();
         const event = buildBridgeEvent(
           eventId, "test.general-bridge",
@@ -124,7 +124,7 @@ export function registerBridgeApp(server: McpServer, testQueue?: InMemoryEventQu
         );
         const queued = queue.enqueue(event);
         if (queued) {
-          lastTestAt = Date.now();
+          lastGenericTestAt = Date.now();
           listenerWakeHub.wake("test.general-bridge");
         }
         return {
