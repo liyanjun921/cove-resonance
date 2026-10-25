@@ -20,15 +20,17 @@ export function createMcpServer(
   profile: McpProfile = "default",
 ): McpServer {
   const server = new McpServer(
-    { name: profile === "music" ? "cove-resonance-music" : "cove-resonance", version: "0.2.0" },
+    { name: profile === "music" ? "cove-resonance-music" : profile === "bridge" ? "cove-resonance-bridge" : "cove-resonance", version: "0.2.1" },
     { instructions: buildProfileInstructions(profile) },
   );
   const eventFilter = (event: { source: string }) => acceptsProfileSource(profile, event.source);
 
-  const neteaseAccountClient = new NeteaseClient(process.env.NETEASE_COOKIE?.trim() ?? "");
-  registerNeteaseAccountTools(server, neteaseAccountClient);
+  if (profile !== "bridge") {
+    const neteaseAccountClient = new NeteaseClient(process.env.NETEASE_COOKIE?.trim() ?? "");
+    registerNeteaseAccountTools(server, neteaseAccountClient);
+    registerNeteaseTogetherTools(server, playbackState, togetherWorker, queue, eventFilter);
+  }
   registerBridgeApp(server);
-  registerNeteaseTogetherTools(server, playbackState, togetherWorker, queue, eventFilter);
   registerBridgeTools(server, queue, eventFilter, togetherWorker);
   registerBridgeWaitTool(server, queue, eventFilter);
 
