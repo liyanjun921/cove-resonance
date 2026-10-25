@@ -1,0 +1,3 @@
+mcp>=1.10,<2
+mi-fitness
+uvicorn>=0.30,<1
