@@ -19,6 +19,7 @@ import uvicorn
 from mi_fitness import MiHealthClient
 from mcp.server.fastmcp import FastMCP
 from setup import setup_app
+from token_codec import parse_token
 
 
 MCP_SECRET = os.getenv("HEALTH_MCP_BEARER_TOKEN", "")
@@ -56,11 +57,9 @@ def _token_file() -> str:
     encoded = os.getenv("MI_TOKEN_B64", "").strip()
     if not encoded:
         raise RuntimeError("Mi Fitness login not configured")
-    try:
-        raw = base64.b64decode(encoded, validate=True)
-        json.loads(raw)
-    except (ValueError, json.JSONDecodeError) as exc:
-        raise RuntimeError("Invalid server-side Mi Fitness token") from exc
+    raw, token_code = parse_token(encoded)
+    if raw is None:
+        raise RuntimeError("Invalid server-side Mi Fitness token: " + token_code)
     fd, filename = tempfile.mkstemp(prefix="mi-health-", suffix=".json")
     with os.fdopen(fd, "wb") as fh:
         fh.write(raw)
