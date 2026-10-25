@@ -27,6 +27,9 @@ a{color:#285b92}small{font-size:12px;color:#66778c;line-height:1.7}
 <input id="key" type="password" autocomplete="off" placeholder="输入你自己设置的管理密钥">
 <div><button id="begin">获取小号登录二维码</button><button class="alt" id="check">检查状态</button></div>
 <div id="result" role="status">尚未开始授权。</div>
+<div><button class="alt" id="selfcheck">验证现有凭证能否读取数据</button></div>
+<p><small>此检测只显示授权范围和睡眠/心率/步数是否有同步记录，不会展示或下载实际健康数值，也不需要重新扫码。</small></p>
+<pre id="diagnostic" hidden></pre>
 <img id="qr" alt="小米账号扫码登录二维码">
 <div id="after" hidden>
 <p><strong>扫码完成。</strong> 请确认下方亲友 UID 与授权的字段。随后手动把令牌存入 Render 的 <code>MI_TOKEN_B64</code> 私密环境变量；不要发到聊天、GitHub 或社交平台。</p>
@@ -74,6 +77,35 @@ a{color:#285b92}small{font-size:12px;color:#66778c;line-height:1.7}
    catch(e){status.textContent=e.message;}
  };
  document.getElementById('check').onclick=check;
+ document.getElementById('selfcheck').onclick=async()=>{
+   const target=document.getElementById('diagnostic');
+   target.hidden=false;target.textContent='正在通过小米健康接口核验授权和最近同步的记录……';
+   try {
+     const r=await call('/setup/check-data','POST');
+     const errors={
+       configuration_missing:'小米凭证或亲友 UID 未配置齐全。',
+       relative_uid_invalid:'亲友 UID 不是有效数字，请检查 Render 中的 MI_RELATIVE_UID。',
+       token_invalid:'小号登录凭证无法解析，请检查 MI_TOKEN_B64。',
+       relative_not_found:'小号的亲友列表里没有找到配置中的大号 UID。',
+       scopes_missing:'找到了亲友，但尚未共享全部三项数据。请在小米运动健康授权界面检查。',
+       provider_timeout:'查询小米服务器超时，可以稍后再试。',
+       TokenExpiredError:'小米登录凭证过期，需要重新授权。',
+       AuthError:'小米接口拒绝了小号登录验证。',
+       APIError:'小米接口返回错误，请检查同步状态和授权。',
+       provider_error:'读取失败，可能是小米接口暂时不可用。'
+     };
+     if(r.ok){
+       const names={sleep:'睡眠',heart_rate:'心率',steps:'步数'};
+       target.textContent='✅ 小米亲友权限与实际查询成功！\\n'+
+         Object.entries(r.available||{}).map(([k,v])=>names[k]+': '+(v?'有同步记录':'暂无同步记录')).join('\\n')+
+         '\\n没有显示任何具体健康数值。';
+     }else{
+       target.textContent='尚未完成实际数据验证：'+(errors[r.code]||('错误类型：'+r.code))+
+         (r.missing?.length?'\\n未共享字段：'+r.missing.join('、'):'');
+     }
+   }catch(e){target.textContent='检测未完成：'+e.message;}
+ };
+
  document.getElementById('export').onclick=async()=>{
    try{
      const d=await call('/setup/export','POST');
