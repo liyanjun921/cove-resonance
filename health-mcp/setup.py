@@ -166,10 +166,83 @@ async def forget(request: Request):
     return JSONResponse({"ok": True}, headers=HEADERS)
 
 
+
+async def check_data(request: Request):
+    """Check real Xiaomi permissions and a synchronized daily summary.
+
+    Return only boolean availability flags, never vitals, timestamps,
+    account IDs, credentials, or raw exception messages.
+    """
+    if not _authorized(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401, headers=HEADERS)
+
+    encoded = os.environ.get("MI_TOKEN_B64", "").strip()
+    relative = os.environ.get("MI_RELATIVE_UID", "").strip()
+    if not encoded or not relative:
+        return JSONResponse({"ok": False, "code": "configuration_missing"}, headers=HEADERS)
+    if not relative.isdigit() or int(relative) <= 0:
+        return JSONResponse({"ok": False, "code": "relative_uid_invalid"}, headers=HEADERS)
+
+    # The export from QR onboarding is a UTF-8 JSON file, base64-encoded.
+    try:
+        raw = base64.b64decode(encoded, validate=True)
+        parsed = json.loads(raw)
+        if not isinstance(parsed, dict):
+            raise ValueError("Invalid token shape")
+    except (ValueError, TypeError, UnicodeDecodeError):
+        return JSONResponse({"ok": False, "code": "token_invalid"}, headers=HEADERS)
+    except Exception:
+        return JSONResponse({"ok": False, "code": "token_invalid"}, headers=HEADERS)
+
+    fd, token_path = tempfile.mkstemp(prefix="mi-health-check-", suffix=".json")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(raw)
+        os.chmod(token_path, 0o600)
+        async def fetch():
+            async with MiHealthClient.from_token(token_path) as client:
+                uid = int(relative)
+                relatives = await client.get_relatives()
+                if not any(int(r.relative_uid) == uid for r in relatives):
+                    return {"ok": False, "code": "relative_not_found"}
+                scopes = set(await client.get_shared_data_types(uid))
+                shared = sorted(scopes & PRIVATE_DATA)
+                missing = sorted(PRIVATE_DATA - scopes)
+                # Do not infer missing permissions from an empty measurement.
+                # If data isn't shared, we report that before making reads.
+                if missing:
+                    return {"ok": False, "code": "scopes_missing",
+                            "shared": shared, "missing": missing}
+                summary = await client.get_latest_daily_summary(uid)
+                available = {
+                    "sleep": summary.sleep is not None,
+                    "heart_rate": summary.heart_rate is not None,
+                    "steps": summary.steps is not None,
+                }
+                return {"ok": True, "code": "read_succeeded",
+                        "shared": shared, "available": available}
+        try:
+            result = await asyncio.wait_for(fetch(), timeout=45)
+        except TimeoutError:
+            result = {"ok": False, "code": "provider_timeout"}
+        except Exception as exc:
+            # Report only an exception *class*, never provider messages:
+            # they can contain tokens or sensitive account metadata.
+            allow = {"TokenExpiredError", "AuthError", "APIError",
+                     "DataNotSharedError", "DeviceUntrustedError",
+                     "CaptchaRequiredError", "DataOutOfSharedTimeScopeError"}
+            kind = type(exc).__name__
+            result = {"ok": False, "code": kind if kind in allow else "provider_error"}
+        return JSONResponse(result, headers=HEADERS)
+    finally:
+        Path(token_path).unlink(missing_ok=True)
+
+
 setup_app = Starlette(routes=[
     Route("/setup", setup_page, methods=["GET"]),
     Route("/setup/start", start, methods=["POST"]),
     Route("/setup/status", status, methods=["GET"]),
     Route("/setup/export", export, methods=["POST"]),
     Route("/setup/forget", forget, methods=["POST"]),
+    Route("/setup/check-data", check_data, methods=["POST"]),
 ])
