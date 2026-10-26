@@ -168,27 +168,24 @@ async def forget(request: Request):
 
 
 
-async def check_data(request: Request):
+async def check_data_state() -> dict:
     """Check real Xiaomi permissions and a synchronized daily summary.
 
     Return only boolean availability flags, never vitals, timestamps,
     account IDs, credentials, or raw exception messages.
     """
-    if not _authorized(request):
-        return JSONResponse({"error": "unauthorized"}, status_code=401, headers=HEADERS)
-
     encoded = os.environ.get("MI_TOKEN_B64", "").strip()
     relative = os.environ.get("MI_RELATIVE_UID", "").strip()
     if not encoded or not relative:
-        return JSONResponse({"ok": False, "code": "configuration_missing"}, headers=HEADERS)
+        return {"ok": False, "code": "configuration_missing"}
     if not relative.isdigit() or int(relative) <= 0:
-        return JSONResponse({"ok": False, "code": "relative_uid_invalid"}, headers=HEADERS)
+        return {"ok": False, "code": "relative_uid_invalid"}
 
     # Accept the original QR export and common copy/paste wrapper formats.
     # Only reveal the *format category*, not the credential or its length.
     raw, token_code = parse_token(encoded)
     if raw is None:
-        return JSONResponse({"ok": False, "code": token_code}, headers=HEADERS)
+        return {"ok": False, "code": token_code}
 
     fd, token_path = tempfile.mkstemp(prefix="mi-health-check-", suffix=".json")
     try:
@@ -229,9 +226,15 @@ async def check_data(request: Request):
                      "CaptchaRequiredError", "DataOutOfSharedTimeScopeError"}
             kind = type(exc).__name__
             result = {"ok": False, "code": kind if kind in allow else "provider_error"}
-        return JSONResponse(result, headers=HEADERS)
+        return result
     finally:
         Path(token_path).unlink(missing_ok=True)
+
+
+async def check_data(request: Request):
+    if not _authorized(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401, headers=HEADERS)
+    return JSONResponse(await check_data_state(), headers=HEADERS)
 
 
 setup_app = Starlette(routes=[
