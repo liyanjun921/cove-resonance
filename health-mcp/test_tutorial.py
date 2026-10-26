@@ -24,6 +24,19 @@ async def request(path, token="", query=""):
 
 
 class TutorialRouteTests(unittest.TestCase):
+    def test_status_is_private_and_contains_only_availability(self):
+        async def fake_status():
+            return {"ok": True, "code": "read_succeeded", "available": {
+                "sleep": True, "heart_rate": True, "steps": False}}
+        with mock.patch.object(health, "MCP_SECRET", "owner-key"), \
+             mock.patch.object(health, "check_data_state", side_effect=fake_status):
+            denied = asyncio.run(request("/health/status"))
+            allowed = asyncio.run(request("/health/status", "owner-key"))
+        self.assertEqual(denied[0]["status"], 401)
+        self.assertEqual(allowed[0]["status"], 200)
+        self.assertEqual(json.loads(allowed[1]["body"])["available"]["steps"], False)
+        self.assertIn((b"cache-control", b"no-store"), allowed[0]["headers"])
+
     def test_no_anonymous_health_read(self):
         with mock.patch.object(health,"MCP_SECRET","owner-key"), mock.patch.object(health,"CHATGPT_SECRET","chatgpt-key"):
             result=asyncio.run(request("/health", query="date=2026-10-26&type=all"))
