@@ -101,3 +101,25 @@ Scheduled/background reading is a separate feature: it must be verified that the
 - Never log tokens, full health responses, or account identifiers.
 - Keep tokens server-side; rotate the MCP secret if compromised.
 - Don't interpret unsynced, missing or partial data as 0, and don't diagnose medical conditions using consumer-device readings.
+
+## Timestamp interpretation (2026-10-26)
+
+`data` preserves all provider values. For displayed times and freshness, use
+`time_metadata.timestamps` (normalized `utc`, `local`, `unix_seconds`, and
+`age_seconds`), not raw `data.*.time`. Query time is not synchronization time.
+
+For this deployment, the owner compared the latest heart-rate sample with the
+Mi Fitness app and confirmed that `latest_hr.time` encodes local UTC+08:00
+clock components as though they were UTC. Its default interpretation is
+`MI_HEART_RATE_TIME_ENCODING=local_wall_clock`; normalization subtracts 28,800
+seconds and explicitly reports the correction alongside the original value.
+This rule is field-specific and deterministic, never inferred from whether a
+record happens to be in the future. It also applies to the nested heart-rate
+sample in daily summaries. Sleep and step timestamps are not changed.
+
+If a different data source/account returns genuine Unix seconds, set
+`MI_HEART_RATE_TIME_ENCODING=unix_seconds` after checking it against the app.
+Future timestamps remain flagged after normalization and must not be presented
+as current vitals. Daily heart-rate `time` identifies a day bucket, not the
+latest sample. `/healthz` reports `time_format_version: 2` and server time;
+neither a healthy clock nor a recent sample proves continuous real-time sync.

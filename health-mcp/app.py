@@ -44,19 +44,29 @@ mcp = FastMCP(
 _token_path: str | None = None
 # The integration queries modern Mi Fitness records in UTC+08:00, as the SDK does.
 DISPLAY_TIMEZONE = dt.timezone(dt.timedelta(hours=8))
+# This source's latest_hr.time was checked against the owner's Mi Fitness app.
+# Scope the interpretation to this field; other metrics retain their encoding.
+HEART_RATE_TIME_ENCODING = os.getenv("MI_HEART_RATE_TIME_ENCODING", "local_wall_clock")
+if HEART_RATE_TIME_ENCODING not in {"local_wall_clock", "unix_seconds"}:
+    raise ValueError("Unsupported MI_HEART_RATE_TIME_ENCODING")
 
 
-def _timestamp_details(value: Any, now: dt.datetime) -> dict[str, Any]:
-    """Decode SDK Unix seconds exactly once; never silently shift source data."""
-    result = {"raw": value, "unit": "unix_seconds"}
+def _timestamp_details(value: Any, now: dt.datetime,
+                       encoding: str = "unix_seconds") -> dict[str, Any]:
+    """Preserve raw time and explicitly report any source-specific correction."""
+    result = {"raw": value, "unit": "seconds", "source_encoding": encoding}
     if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
         return {**result, "status": "missing_or_invalid"}
     try:
         instant = dt.datetime.fromtimestamp(value, tz=dt.timezone.utc)
+        if encoding == "local_wall_clock":
+            # Provider encoded local clock components as if they were UTC.
+            instant = instant.replace(tzinfo=DISPLAY_TIMEZONE).astimezone(dt.timezone.utc)
+            result["offset_correction_seconds"] = -28800
     except (OverflowError, OSError, ValueError):
         return {**result, "status": "out_of_range"}
     age = int((now - instant).total_seconds())
-    return {**result, "utc": instant.isoformat(),
+    return {**result, "unix_seconds": int(instant.timestamp()), "utc": instant.isoformat(),
             "local": instant.astimezone(DISPLAY_TIMEZONE).isoformat(),
             "age_seconds": age,
             "status": "future" if instant > now else "at_or_before_query"}
@@ -71,7 +81,8 @@ def _time_metadata(data: Any, now: dt.datetime) -> dict[str, Any]:
             for key, child in value.items():
                 child_path = f"{path}.{key}"
                 if key in {"time", "bedtime", "wake_up_time"}:
-                    timestamps[child_path] = _timestamp_details(child, now)
+                    encoding = HEART_RATE_TIME_ENCODING if child_path.endswith(".latest_hr.time") else "unix_seconds"
+                    timestamps[child_path] = _timestamp_details(child, now, encoding)
                 else:
                     visit(child, child_path)
         elif isinstance(value, list):
@@ -82,8 +93,11 @@ def _time_metadata(data: Any, now: dt.datetime) -> dict[str, Any]:
     return {"timezone": "Asia/Shanghai", "queried_at_utc": now.isoformat(),
             "queried_at_local": now.astimezone(DISPLAY_TIMEZONE).isoformat(),
             "timestamps": timestamps,
-            "note": "Daily time is a bucket label, not a sample or sync time. "
-                    "Use latest_hr.time for heart-rate sample time. "
+            "note": "Data timestamps remain raw provider values. Use normalized "
+                    "time_metadata.timestamps for displayed sample times and ages. "
+                    "Heart-rate daily time is a bucket label, not a sample or sync time. "
+                    "latest_hr.time uses the configured source encoding, confirmed "
+                    "against the owner's Mi Fitness app for this integration. "
                     "Query time is not sync time. Future timestamps are unverified; "
                     "do not report them as current readings."}
 
@@ -254,7 +268,7 @@ class PrivateGate:
             if scope.get("path") == "/healthz":
                 payload = json.dumps({
                     "ok": True,
-                    "time_format_version": 1,
+                    "time_format_version": 2,
                     "timezone": "Asia/Shanghai",
                     "server_time": dt.datetime.now(DISPLAY_TIMEZONE).isoformat(),
                     "configured": bool(MCP_SECRET and RELATIVE_UID and

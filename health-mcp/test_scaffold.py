@@ -61,17 +61,38 @@ class ScaffoldTests(unittest.TestCase):
         now = dt.datetime(2026, 10, 26, 14, 0, tzinfo=dt.timezone.utc)
         sample = int(now.timestamp()) - 300
         data = [{"time": int(dt.datetime(2026, 10, 25, 16, tzinfo=dt.timezone.utc).timestamp()),
-                 "latest_hr": {"time": sample, "bpm": 80}}]
+                 "latest_hr": {"time": sample + 28800, "bpm": 80}}]
         metadata = health._time_metadata(data, now)
         bucket = metadata["timestamps"]["data[0].time"]
         reading = metadata["timestamps"]["data[0].latest_hr.time"]
         self.assertEqual(bucket["local"], "2026-10-26T00:00:00+08:00")
         self.assertEqual(reading["local"], "2026-10-26T21:55:00+08:00")
         self.assertEqual(reading["age_seconds"], 300)
-        self.assertEqual(data[0]["latest_hr"]["time"], sample)
+        self.assertEqual(data[0]["latest_hr"]["time"], sample + 28800)
+        self.assertEqual(reading["unix_seconds"], sample)
+        self.assertEqual(reading["offset_correction_seconds"], -28800)
         future = health._timestamp_details(int(now.timestamp()) + 3600, now)
         self.assertEqual(future["status"], "future")
         self.assertEqual(future["age_seconds"], -3600)
+
+    def test_source_encoding_crosses_midnight_and_keeps_future_guard(self):
+        now = dt.datetime(2026, 10, 26, 16, 5, tzinfo=dt.timezone.utc)
+        encoded = int(dt.datetime(2026, 10, 27, 0, 1, tzinfo=dt.timezone.utc).timestamp())
+        reading = health._timestamp_details(encoded, now, "local_wall_clock")
+        self.assertEqual(reading["local"], "2026-10-27T00:01:00+08:00")
+        self.assertEqual(reading["age_seconds"], 240)
+        future = health._timestamp_details(encoded + 600, now, "local_wall_clock")
+        self.assertEqual(future["status"], "future")
+        self.assertEqual(future["age_seconds"], -360)
+
+    def test_unix_source_setting_does_not_apply_offset(self):
+        now = dt.datetime(2026, 10, 26, 14, 0, tzinfo=dt.timezone.utc)
+        sample = int(now.timestamp()) - 60
+        data = [{"latest_hr": {"time": sample}}]
+        with mock.patch.object(health, "HEART_RATE_TIME_ENCODING", "unix_seconds"):
+            reading = health._time_metadata(data, now)["timestamps"]["data[0].latest_hr.time"]
+        self.assertEqual(reading["age_seconds"], 60)
+        self.assertNotIn("offset_correction_seconds", reading)
 
     def test_invalid_timestamps_do_not_break_query(self):
         now = dt.datetime.now(dt.timezone.utc)
