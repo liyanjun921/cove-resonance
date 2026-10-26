@@ -71,7 +71,7 @@ class OwnerOAuthTests(unittest.TestCase):
         meta=json.loads(body)
         self.assertEqual(meta["resource"],oauth.RESOURCE)
         self.assertIn(oauth.ORIGIN,meta["authorization_servers"])
-        self.assertIn("resource_metadata=",oauth.www_authenticate())
+        self.assertIn("/.well-known/oauth-protected-resource/mcp",oauth.www_authenticate())
 
     def test_registration_rejects_unsafe_redirect(self):
         status,data=register("https://attacker.example/redirect")
