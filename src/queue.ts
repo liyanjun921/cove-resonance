@@ -54,6 +54,11 @@ export class InMemoryEventQueue {
     return this.getRow(eventId)?.event ?? null;
   }
 
+  hasEndedWithoutReply(eventId: string): boolean {
+    const reply = this.getRow(eventId)?.reply;
+    return Boolean(reply?.completed && reply.sentCount === 0);
+  }
+
   getOutstandingRequiredReplyEvent(filter?: (event: BridgeEvent) => boolean): BridgeEvent | null {
     for (const row of this.conversationRows.values()) {
       if (filter && !filter(row.event)) continue;

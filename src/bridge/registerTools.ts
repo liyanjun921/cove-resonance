@@ -66,6 +66,12 @@ export function registerBridgeTools(
         .digest("hex");
       const claim = queue.claimReply(resolvedEventId, fingerprint);
 
+      if (event.replyRoute === "external.inbox"
+        && claim.state === "already_completed" && claim.sentCount === 0) {
+        throw new Error("Event ended without delivering a reply: the host rejected or dismissed the message. "
+          + "No reply was written to the external inbox; this terminal event will not be resent.");
+      }
+
       if (claim.state === "already_completed" || claim.state === "in_progress") {
         return {
           structuredContent: {

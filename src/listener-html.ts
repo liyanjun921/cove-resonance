@@ -22,6 +22,7 @@ export function buildListenerHtml(enableGeneralTest = false): string {
   <div class="title">Cove Bridge</div>
   <div id="status" class="status">已挂载，尚未监听。</div>
   <button id="toggle" type="button" disabled>正在连接…</button>
+  ${enableGeneralTest ? '<div id="host-error" class="status" role="alert"></div>' : ''}
   ${enableGeneralTest ? '<button id="general-test-send" type="button" disabled>发送通用测试消息</button><button id="general-test-check" type="button" disabled>检查测试回复</button><div id="general-test-result" class="status" aria-live="polite"></div>' : ''}
 </main>
 <script>
@@ -177,7 +178,10 @@ export function buildListenerHtml(enableGeneralTest = false): string {
     const entry = pending.get(message.id);
     if (!entry) return;
     pending.delete(message.id);
-    if (message.error) entry.reject(new Error(message.error.message || 'Host request failed'));
+    if (message.error) entry.reject(Object.assign(
+      new Error(message.error.message || 'Host request failed'),
+      { code: message.error.code }
+    ));
     else entry.resolve(message.result);
   }, { passive: true });
 
@@ -197,7 +201,12 @@ export function buildListenerHtml(enableGeneralTest = false): string {
 
   async function callTool(name, args) {
     if (!bridgeReady) throw new Error('Bridge is not initialized');
-    return request('tools/call', { name, arguments: args || {} });
+    const response = await request('tools/call', { name, arguments: args || {} });
+    if (generalTestEnabled && response && response.isError) {
+      throw new Error((response.content || []).filter((item) => item.type === 'text')
+        .map((item) => item.text).join(' / ') || 'Bridge tool failed');
+    }
+    return response;
   }
 
   const sleep = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -297,8 +306,15 @@ export function buildListenerHtml(enableGeneralTest = false): string {
         role: 'user',
         content: [{ type: 'text', text: String(event.visibleText || '') }]
       });
+      if (generalTestEnabled) document.getElementById('host-error').textContent = '';
       return { outcome: 'sent' };
     } catch (error) {
+      if (generalTestEnabled) {
+        const code = typeof error.code === 'number' ? ' (' + error.code + ')' : '';
+        document.getElementById('host-error').textContent =
+          '向聊天发送消息未成功' + code + '：' + (error.message || String(error))
+          + '。本条事件已终止，不会自动重发；这不代表已经回复。';
+      }
       return { outcome: 'dismissed', error };
     }
   }
@@ -357,11 +373,13 @@ export function buildListenerHtml(enableGeneralTest = false): string {
         rememberPendingDismissal(eventId);
         const dismissed = await flushPendingTerminals();
         if (!dismissed) {
-          setStatus('本次提示已取消；正在重试取消确认，不会重复显示。');
+          setStatus(generalTestEnabled
+            ? '消息未发送；正在确认事件终态，不会重复显示。'
+            : '本次提示已取消；正在重试取消确认，不会重复显示。');
           return;
         }
         shouldContinue = true;
-        setStatus('本次提示已取消，不会重复显示。');
+        setStatus(generalTestEnabled ? '消息未发送，事件已终止。' : '本次提示已取消，不会重复显示。');
         return;
       }
 
@@ -451,7 +469,9 @@ export function buildListenerHtml(enableGeneralTest = false): string {
         if (!data) throw new Error('No status returned');
         result.textContent = data.completed
           ? '通用收件箱已收到 AI 回复：' + (Array.isArray(data.messages) ? data.messages.join(' / ') : '')
-          : '尚未收到完整回复。请确认 ChatGPT 已处理测试消息并调用通用回复工具。';
+          : data.endedWithoutReply
+            ? '这条测试已终止，没有回复写回收件箱。若上方显示发送错误，请以该错误为准。'
+            : '尚未收到完整回复。请确认 ChatGPT 已处理测试消息并调用通用回复工具。';
       } catch (error) {
         result.textContent = '检查失败：' + (error.message || String(error));
       } finally {

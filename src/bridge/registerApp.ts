@@ -142,6 +142,7 @@ export function registerBridgeApp(server: McpServer, testQueue?: InMemoryEventQu
         inputSchema: { eventId: z.string().startsWith("test:").max(100) },
         outputSchema: {
           completed: z.boolean(),
+          endedWithoutReply: z.boolean(),
           messages: z.array(z.string()),
         },
         annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
@@ -151,6 +152,7 @@ export function registerBridgeApp(server: McpServer, testQueue?: InMemoryEventQu
         const reply = externalReplyInbox.read(eventId);
         return { structuredContent: {
           completed: Boolean(reply?.completed),
+          endedWithoutReply: testQueue!.hasEndedWithoutReply(eventId),
           messages: reply?.messages ?? [],
         }, content: [] };
       },
