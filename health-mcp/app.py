@@ -2,7 +2,7 @@
 
 This is a deployment scaffold, not a live health integration. Requires a Xiaomi
 family-share grant, a server-side token, a relative UID, and client auth.
-Never expose this as a public unauthenticated MCP endpoint.
+Public read-only MCP access is opt-in with HEALTH_PUBLIC_READ_ONLY=true.
 """
 import asyncio
 import dataclasses
@@ -26,6 +26,7 @@ from token_codec import parse_token
 
 MCP_SECRET = os.getenv("HEALTH_MCP_BEARER_TOKEN", "")
 CHATGPT_SECRET = os.getenv("HEALTH_CHATGPT_TOKEN", "")
+PUBLIC_READ_ONLY = os.getenv("HEALTH_PUBLIC_READ_ONLY", "false").lower() == "true"
 RELATIVE_UID = os.getenv("MI_RELATIVE_UID", "").strip()
 mcp = FastMCP(
     "XLC Private Mi Fitness Health",
@@ -215,6 +216,10 @@ class PrivateGate:
                                         (b"cache-control", b"no-store")]})
                 await send({"type": "http.response.body", "body": payload})
                 return
+            # Owner-authorized public access applies only to the read-only MCP.
+            # Setup, HTTP reads and diagnostics retain their existing authentication.
+            if PUBLIC_READ_ONLY and scope.get("path") == "/mcp":
+                return await self.nested_app(scope, receive, send)
             auth = next((v for k, v in scope.get("headers", []) if k.lower() == b"authorization"), b"")
             valid_keys = [key for key in (MCP_SECRET, CHATGPT_SECRET) if key]
             allowed = any(hmac.compare_digest(auth, ("Bearer " + key).encode("utf-8"))
