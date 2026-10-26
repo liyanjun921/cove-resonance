@@ -62,7 +62,8 @@ class ScreenshotTests(unittest.TestCase):
     def test_unauthorized_mcp_is_closed(self):
         code, data, _ = asyncio.run(http("/mcp", "POST", b"{}"))
         self.assertEqual(code, 401)
-        self.assertEqual(data["error"], "unauthorized")
+        self.assertEqual(data["error"], "authorization_required")
+        self.assertIn("resource_metadata", s.oauth.www_authenticate())
 
     def test_login_requires_secret_and_origin(self):
         payload = json.dumps({"secret":os.environ["SNAPSHOT_OWNER_SECRET"]}).encode()
