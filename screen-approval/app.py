@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Optional
 
 import uvicorn
+import oauth
 from itsdangerous import BadSignature, SignatureExpired, TimestampSigner
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ImageContent, TextContent
@@ -265,6 +266,8 @@ class ScreenshotGate:
             return await self.mcp_app(scope, receive, send)
         path = scope.get("path", "")
         method = scope.get("method", "GET")
+        if await oauth.route(scope, receive, send, reply):
+            return
         if path == "/healthz":
             return await reply(send, {"ok": True, "ready": ENABLED,
                          "push_configured": bool(VAPID_PRIVATE and VAPID_PUBLIC and VAPID_SUBJECT)})
@@ -382,10 +385,11 @@ class ScreenshotGate:
             return await reply(send, {"error": "not_found"}, 404)
         if not ENABLED:
             return await reply(send, {"error": "owner_setup_required"}, 503)
-        received = get_header(scope, "authorization").encode()
-        if not hmac.compare_digest(received, ("Bearer " + MCP_SECRET).encode()):
-            return await reply(send, {"error": "unauthorized"}, 401,
-                               headers=[(b"www-authenticate", b"Bearer")])
+        auth_header = get_header(scope, "authorization")
+        legacy_token_ok = hmac.compare_digest(auth_header.encode(), ("Bearer " + MCP_SECRET).encode())
+        if not (legacy_token_ok or oauth.authenticated(auth_header)):
+            return await reply(send, {"error": "authorization_required"}, 401,
+                               headers=[(b"www-authenticate", oauth.www_authenticate().encode())])
         return await self.mcp_app(scope, receive, send)
 
 
