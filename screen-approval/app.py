@@ -6,6 +6,7 @@ No server persistence survives a Render free-service restart; requests expire in
 import asyncio
 import base64
 import hmac
+import hashlib
 import io
 import json
 import os
@@ -35,6 +36,7 @@ VAPID_PUBLIC = os.getenv("VAPID_PUBLIC_KEY", "")
 VAPID_SUBJECT = os.getenv("VAPID_SUBJECT", "")
 ENABLED = all(len(s) >= 24 for s in (OWNER_SECRET, SESSION_SECRET))
 LEGACY_MCP_ENABLED = len(MCP_SECRET) >= 24
+APPROVAL_MODE = os.getenv("SNAPSHOT_AUTH_MODE", "approval") == "approval"
 signer = TimestampSigner(SESSION_SECRET) if SESSION_SECRET else None
 mcp = FastMCP("XLC Screenshot Approval", stateless_http=True,
               json_response=True, streamable_http_path="/mcp",
@@ -59,6 +61,8 @@ class Snapshot:
     path: Optional[str] = None
     ticket: Optional[str] = None
     ticket_expires: float = 0
+    capability_hash: str = ""
+    approval_code: str = ""
 
 
 def cleanup():
@@ -124,9 +128,15 @@ async def request_screen_snapshot(reason: str) -> dict:
         if sum(x.state == "pending" for x in REQUESTS.values()) >= 3:
             return {"status": "rate_limited"}
         rid = secrets.token_urlsafe(24)
-        REQUESTS[rid] = Snapshot(time.time(), reason)
+        access_token = secrets.token_urlsafe(32)
+        approval_code = f"{secrets.randbelow(1000000):06d}"
+        REQUESTS[rid] = Snapshot(time.time(), reason,
+                                capability_hash=hashlib.sha256(access_token.encode()).hexdigest(),
+                                approval_code=approval_code)
     await notify_owner()
     return {"request_id": rid, "status": "pending", "expires_in_seconds": 600,
+            "access_token": access_token, "approval_code": approval_code,
+            "approval_url": oauth.ORIGIN + "/app",
             "note": "Only the owner can approve and manually upload a screenshot."}
 
 
@@ -178,6 +188,7 @@ async def read_approved_screen_snapshot(request_id: str) -> list[TextContent | I
 # invocation is protected and uses the MCP mcp/www_authenticate hint.
 OAUTH_SCOPES = ["snapshot:request", "snapshot:read"]
 OAUTH_SECURITY_SCHEMES = [{"type": "oauth2", "scopes": OAUTH_SCOPES}]
+TOOL_SECURITY = [{"type": "noauth"}] if APPROVAL_MODE else OAUTH_SECURITY_SCHEMES
 TOOL_ANNOTATIONS = {
     "request_screen_snapshot": {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False},
     "get_screen_snapshot_status": {"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False},
@@ -195,28 +206,30 @@ async def _list_tools():
                          "This never captures the device screen automatically."),
             inputSchema={"type": "object", "properties": {"reason": {"type": "string", "minLength": 3, "maxLength": 140}},
                          "required": ["reason"], "additionalProperties": False},
-            securitySchemes=OAUTH_SECURITY_SCHEMES,
-            _meta={"securitySchemes": OAUTH_SECURITY_SCHEMES},
+            securitySchemes=TOOL_SECURITY,
+            _meta={"securitySchemes": TOOL_SECURITY},
             annotations=TOOL_ANNOTATIONS["request_screen_snapshot"],
         ),
         types.Tool(
             name="get_screen_snapshot_status",
             title="Check screenshot request",
             description="Check whether an owner-approved screenshot request is pending, fulfilled, denied or expired.",
-            inputSchema={"type": "object", "properties": {"request_id": {"type": "string", "maxLength": 128}},
-                         "required": ["request_id"], "additionalProperties": False},
-            securitySchemes=OAUTH_SECURITY_SCHEMES,
-            _meta={"securitySchemes": OAUTH_SECURITY_SCHEMES},
+            inputSchema={"type": "object", "properties": {"request_id": {"type": "string", "maxLength": 128},
+                         "access_token": {"type": "string", "maxLength": 128, "description": "Per-request token returned by request_screen_snapshot. Never display it in chat."}},
+                         "required": ["request_id"] + (["access_token"] if APPROVAL_MODE else []), "additionalProperties": False},
+            securitySchemes=TOOL_SECURITY,
+            _meta={"securitySchemes": TOOL_SECURITY},
             annotations=TOOL_ANNOTATIONS["get_screen_snapshot_status"],
         ),
         types.Tool(
             name="read_approved_screen_snapshot",
             title="Read approved screenshot",
             description="Read once the single screenshot the owner manually selected and explicitly uploaded.",
-            inputSchema={"type": "object", "properties": {"request_id": {"type": "string", "maxLength": 128}},
-                         "required": ["request_id"], "additionalProperties": False},
-            securitySchemes=OAUTH_SECURITY_SCHEMES,
-            _meta={"securitySchemes": OAUTH_SECURITY_SCHEMES},
+            inputSchema={"type": "object", "properties": {"request_id": {"type": "string", "maxLength": 128},
+                         "access_token": {"type": "string", "maxLength": 128, "description": "Per-request token returned by request_screen_snapshot. Never display it in chat."}},
+                         "required": ["request_id"] + (["access_token"] if APPROVAL_MODE else []), "additionalProperties": False},
+            securitySchemes=TOOL_SECURITY,
+            _meta={"securitySchemes": TOOL_SECURITY},
             annotations=TOOL_ANNOTATIONS["read_approved_screen_snapshot"],
         ),
     ]
@@ -271,10 +284,19 @@ def _tool_error(message):
 
 
 async def _call_tool_request(req: types.CallToolRequest):
-    if not _mcp_authorized():
-        return _oauth_required_result()
     name = req.params.name
-    arguments = req.params.arguments or {}
+    arguments = dict(req.params.arguments or {})
+    authorized = _mcp_authorized()
+    if not APPROVAL_MODE and not authorized:
+        return _oauth_required_result()
+    if name != "request_screen_snapshot":
+        token = arguments.pop("access_token", "")
+        if not authorized:
+            item = REQUESTS.get(safe_id(arguments.get("request_id")))
+            if (not isinstance(token, str) or not 32 <= len(token) <= 128 or not item
+                or time.time() >= item.created + TTL_SECONDS
+                or not hmac.compare_digest(hashlib.sha256(token.encode()).hexdigest(), item.capability_hash)):
+                return _tool_error("Request credential is missing, invalid or expired. No image access granted.")
     try:
         if name == "request_screen_snapshot":
             result = await request_screen_snapshot(**arguments)
@@ -455,7 +477,7 @@ class ScreenshotGate:
                 async with LOCK:
                     cleanup()
                     return await reply(send, {"requests": [
-                        {"id": rid, "reason": item.reason, **status(item)}
+                        {"id": rid, "reason": item.reason, "approval_code": item.approval_code, **status(item)}
                         for rid, item in REQUESTS.items() if item.state == "pending"]})
             if path == "/api/vapid" and method == "GET":
                 return await reply(send, {"publicKey": VAPID_PUBLIC if VAPID_PRIVATE and VAPID_SUBJECT else ""})

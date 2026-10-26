@@ -75,7 +75,7 @@ function requestNode(item) {
   reason.className = "reason";
   reason.textContent = item.reason;
   const subtitle = document.createElement("p");
-  subtitle.textContent = "有效期还剩约 " + Math.max(0,Math.ceil(item.expires_in_seconds / 60)) + " 分钟";
+  subtitle.textContent = "申请校验码：" + (item.approval_code || "旧版申请") + " · 有效期约 " + Math.max(0,Math.ceil(item.expires_in_seconds / 60)) + " 分钟。请与你的聊天窗口核对后再批准。";
   const file = document.createElement("input");
   file.type="file";
   file.accept="image/*";

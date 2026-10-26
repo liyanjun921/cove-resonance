@@ -6,6 +6,7 @@ import os
 import sys
 import time
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 os.environ["SNAPSHOT_OWNER_SECRET"] = "test_owner_" + "A" * 40
@@ -59,7 +60,7 @@ class ScreenshotTests(unittest.TestCase):
         s.SUBSCRIPTIONS.clear()
         s.LOGIN_ATTEMPTS.clear()
 
-    def test_tool_discovery_advertises_oauth_without_auth(self):
+    def test_tool_discovery_advertises_approval_without_oauth(self):
         tools = asyncio.run(s._list_tools())
         self.assertEqual(
             {tool.name for tool in tools},
@@ -67,9 +68,9 @@ class ScreenshotTests(unittest.TestCase):
         )
         for tool in tools:
             serialized = json.dumps(tool.model_dump(mode="json", by_alias=True))
-            self.assertIn('"type": "oauth2"', serialized)
-            self.assertIn("snapshot:request", serialized)
-            self.assertIn("snapshot:read", serialized)
+            self.assertIn('"type": "noauth"', serialized)
+            if tool.name != "request_screen_snapshot":
+                self.assertIn("access_token", tool.inputSchema["required"])
 
     def test_unauthorized_tool_call_returns_mcp_auth_challenge(self):
         from types import SimpleNamespace
@@ -77,7 +78,8 @@ class ScreenshotTests(unittest.TestCase):
             name="request_screen_snapshot",
             arguments={"reason": "请授权一张截图"},
         ))
-        result = asyncio.run(s._call_tool_request(request))
+        with patch.object(s, "APPROVAL_MODE", False):
+            result = asyncio.run(s._call_tool_request(request))
         serialized = json.dumps(result.model_dump(mode="json", by_alias=True))
         self.assertIn("mcp/www_authenticate", serialized)
         self.assertIn("/.well-known/oauth-protected-resource/mcp", serialized)

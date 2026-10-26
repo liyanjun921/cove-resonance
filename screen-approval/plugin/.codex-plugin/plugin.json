@@ -1,0 +1,29 @@
+{
+  "interface": {
+    "capabilities": [
+      "Interactive"
+    ],
+    "category": "Productivity",
+    "defaultPrompt": "Use request_screen_snapshot when a screenshot check-in is appropriate under the owner's standing permission. Show only the approval code and PWA link. Keep per-request access_token in tool context and use it for status/read. Wait for manual selection and explicit upload approval before reading.",
+    "developerName": "Li Li",
+    "displayName": "谢临川 · 截图查岗",
+    "longDescription": "GPT may request a screenshot during an active conversation. Compare the request code, manually select and preview an image in your private PWA, then approve one-time reading. No OAuth connection required.",
+    "shortDescription": "主动申请截图，由你逐次审批"
+  },
+  "name": "xlc-consent-snapshot",
+  "version": "0.3.0",
+  "description": "Screenshot requests with per-request credentials and explicit owner approval, without OAuth login.",
+  "author": {
+    "name": "Li Li",
+    "email": "uzhem20@gmail.com"
+  },
+  "keywords": [
+    "consent",
+    "screenshots",
+    "MCP",
+    "private"
+  ],
+  "skills": "./skills",
+  "mcpServers": "./.mcp.json"
+}
+
