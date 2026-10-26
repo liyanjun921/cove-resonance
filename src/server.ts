@@ -10,6 +10,7 @@ import { MCP_PATHS } from "./profiles.js";
 import { listenerWakeHub } from "./listenerWake.js";
 import { externalReplyInbox } from "./externalReplyInbox.js";
 import { WakeWorker } from "./wakeWorker.js";
+import { ListenerWakeScheduler } from "./listenerWakeScheduler.js";
 import { PlaybackStateStore } from "./netease/playbackState.js";
 import { createTogetherWorker } from "./netease/togetherWorker.js";
 import { InMemoryEventQueue } from "./queue.js";
@@ -21,6 +22,12 @@ const MCP_TOKEN = process.env.BRIDGE_MCP_TOKEN?.trim() ?? "";
 const UNIX_SOCKET = process.env.BRIDGE_UNIX_SOCKET?.trim() ?? "";
 const queue = new InMemoryEventQueue();
 const wakeWorker = new WakeWorker(queue);
+const listenerWakeScheduler = new ListenerWakeScheduler(queue, {
+  enabled: ISOLATED_MODE && process.env.BRIDGE_LISTENER_WAKE_ENABLED === "true",
+  intervalMinutes: ISOLATED_MODE ? Number(process.env.BRIDGE_LISTENER_WAKE_INTERVAL_MINUTES ?? 15) : 15,
+  firstDelaySeconds: ISOLATED_MODE ? Number(process.env.BRIDGE_LISTENER_WAKE_FIRST_DELAY_SECONDS
+    ?? Number(process.env.BRIDGE_LISTENER_WAKE_INTERVAL_MINUTES ?? 15) * 60) : 900,
+}, () => listenerWakeHub.status().clients, () => listenerWakeHub.wake("scheduled-listener-wake"));
 const playbackState = new PlaybackStateStore();
 
 function enqueueTogetherEvent(
@@ -96,6 +103,7 @@ export function createHttpServer() {
         version: "0.1.0",
         queue: queue.status(),
         listener: listenerWakeHub.status(),
+        ...(ISOLATED_MODE ? { listenerWake: listenerWakeScheduler.status() } : {}),
       });
       return;
     }
@@ -213,6 +221,7 @@ if (process.env.NODE_ENV !== "test") {
     console.log("Cove Resonance listening on http://0.0.0.0:" + PORT + " (MCP: /mcp, /mcp/music, /mcp/bridge)");
     if (!ISOLATED_MODE) togetherWorker.start();
     if (process.env.BRIDGE_WAKE_ENABLED === "true") wakeWorker.start();
+    listenerWakeScheduler.start();
   });
 
   if (UNIX_SOCKET) {

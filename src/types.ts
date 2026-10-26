@@ -12,6 +12,7 @@ export type BridgeEvent = {
   replyRoute?: ReplyRoute;
   replyPolicy?: ReplyPolicy;
   createdAt: string;
+  expiresAt?: string;
   visibleText: string;
   modelContext: string;
 };

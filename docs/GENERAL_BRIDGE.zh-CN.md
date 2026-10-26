@@ -52,3 +52,13 @@
 通用 Listener 会把 `ui/message` 返回的错误消息和数字错误码保留在卡片中，后续空队列轮询不会清除它。这个错误可能来自用户取消、Host 拒绝或不支持该调用，不能统一解释为用户点了取消。事件仍保持终态，不会自动释放重发。
 
 `cove_bridge_test_status` 的 `completed` 只表示收件箱回复完成；`endedWithoutReply:true` 表示事件已终止但未发送回复。对这种事件调用通用 `cove_bridge_reply` 会明确报错，不再声称“已送达，重复发送已拦截”。队列的历史 `delivered` 计数仍包含终态事件，不能作为 ChatGPT 前台消息或外部回复成功的验收依据。
+
+## 在线 Listener 的固定信号定时评估
+
+`BRIDGE_LISTENER_WAKE_ENABLED=true` 只在独立隔离模式生效，默认仍为关闭。`BRIDGE_LISTENER_WAKE_INTERVAL_MINUTES` 支持 15–1440 分钟；本项目用户选择每 15 分钟评估一次。`BRIDGE_LISTENER_WAKE_FIRST_DELAY_SECONDS` 控制服务启动后的首次延迟（至少 60 秒，默认同评估间隔），短延迟用于真实验收，不能视为只有首次部署才会执行。
+
+这个调度器与原 `BRIDGE_WAKE_ENABLED` 的活跃度 Worker 分开。启用前者时保持后者关闭。它只生成 `wake.listener-test` 固定提示，沿现有 queue → Listener → `ui/update-model-context` → `ui/message` 进入官方对话，由当前对话决定是否联系用户。唤醒没有外部回复路由，不能调用 `cove_bridge_reply` 把私人回复写入公开测试后端；不要求调用或改动 RIVERSE。无需先接入 Luné 才能在当前官方对话中测试。
+
+服务端仅在恰好一个 SSE Listener 在线、队列空闲、没有未完成的 required reply、且上海时间不在 01:00–09:00 时入队。断线或多卡片时跳过，不累计补发；未领取的唤醒两分钟过期，已经 reserved/交给 Host 的事件保持原终态规则，不会因过期被重新释放。使用时间段派生的稳定事件 ID，让同一张卡片的本地投递记录拦截服务重启后的同段重复事件。
+
+根状态接口 `/` 的 `listenerWake` 返回配置、最早可评估时间、最近入队时间和跳过原因；入队记录不是实际发送证明。验收必须确认**用户没有再点测试按钮时**，官方对话被定时事件触发。后台不知道用户刚在官方聊天里发消息的时间，因此近期互动与是否发言由对话端判断；尚不具备可靠的跨设备静默计时、持久化或全天在线保障。手机挂起、浏览器关闭、Render 免费服务休眠时，不能保证按时唤醒。

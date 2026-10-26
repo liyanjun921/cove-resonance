@@ -13,7 +13,9 @@ export function acceptsProfileSource(profile: McpProfile, source: string): boole
     // An unauthenticated, isolated test connector must not disclose real
     // external events to unknown public MCP callers.
     if (process.env.BRIDGE_ISOLATED_MODE === "true" && !process.env.BRIDGE_MCP_TOKEN) {
-      return source === "test.general-bridge";
+      // This second source is emitted only by the server's fixed-content
+      // Listener wake scheduler. HTTP ingress cannot write arbitrary wakes.
+      return source === "test.general-bridge" || source === "wake.listener-test";
     }
     return true;
   }

@@ -36,6 +36,9 @@ test("isolated unauthenticated generic service is fixed-test-only", async () => 
     const payload = { eventId: "not-allowed", source: "pwa.chat", text: "private" };
     assert.equal((await request("/events", "POST", payload)).status, 401);
     assert.equal((await request("/events", "POST", payload, token)).status, 403);
+    assert.equal((await request("/events", "POST", {
+      eventId: "spoofed-wake", source: "wake.listener-test", text: "Not a server-generated wake",
+    }, token)).status, 403);
     assert.equal((await request("/mcp", "POST", { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} })).status, 404);
     assert.equal((await request("/mcp/music", "POST", { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} })).status, 404);
 
