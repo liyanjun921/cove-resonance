@@ -102,6 +102,71 @@ async def notify_owner():
 
 
 
+@mcp.tool()
+async def request_screen_snapshot(reason: str) -> dict:
+    """Ask for a screenshot. This never captures, uploads, or reads anything.
+    The user must manually choose an image and approve it in their PWA.
+    Request expires in 10 minutes. Push notification contains no private data.
+    """
+    if not ENABLED:
+        return {"status": "unavailable", "reason": "Owner setup not completed"}
+    reason = reason.strip()
+    if not (3 <= len(reason) <= 140):
+        return {"status": "invalid_reason", "reason": "3–140 characters required"}
+    async with LOCK:
+        cleanup()
+        if sum(x.state == "pending" for x in REQUESTS.values()) >= 3:
+            return {"status": "rate_limited"}
+        rid = secrets.token_urlsafe(24)
+        REQUESTS[rid] = Snapshot(time.time(), reason)
+    await notify_owner()
+    return {"request_id": rid, "status": "pending", "expires_in_seconds": 600,
+            "note": "Only the owner can approve and manually upload a screenshot."}
+
+
+@mcp.tool()
+async def get_screen_snapshot_status(request_id: str) -> dict:
+    """Check if a previously requested screenshot was approved or expired.
+    This never returns image data.
+    """
+    async with LOCK:
+        cleanup()
+        item = REQUESTS.get(safe_id(request_id))
+        return {"request_id": request_id, **status(item)} if item else {
+            "status": "not_found"}
+
+
+@mcp.tool()
+async def read_approved_screen_snapshot(request_id: str) -> list[TextContent | ImageContent]:
+    """Read an explicitly approved screenshot once. Deletes image before returning.
+    Repeated reads do not return the screenshot.
+    """
+    async with LOCK:
+        cleanup()
+        item = REQUESTS.get(safe_id(request_id))
+        if not item:
+            return [TextContent(type="text", text='{"status":"not_found"}')]
+        if item.state != "fulfilled" or not item.path:
+            return [TextContent(type="text", text=json.dumps(status(item)))]
+        path = Path(item.path)
+        try:
+            contents = path.read_bytes()
+        except FileNotFoundError:
+            item.state = "expired"
+            item.path = None
+            return [TextContent(type="text", text='{"status":"expired"}')]
+        path.unlink(missing_ok=True)
+        item.path = None
+        item.state = "viewed"
+    return [
+        TextContent(type="text", text=json.dumps({
+            "status": "viewed", "request_id": request_id,
+            "notice": "User selected and approved this image. No ongoing screen access exists."})),
+        ImageContent(type="image", mimeType="image/jpeg",
+                     data=base64.b64encode(contents).decode("ascii"))
+    ]
+
+
 # ChatGPT needs public tool discovery plus explicit OAuth security metadata.
 # A transport-level 401 prevents tools/list from being discovered, so only tool
 # invocation is protected and uses the MCP mcp/www_authenticate hint.
@@ -227,70 +292,6 @@ async def _call_tool_request(req: types.CallToolRequest):
 
 mcp._mcp_server.request_handlers[types.CallToolRequest] = _call_tool_request
 
-
-@mcp.tool()
-async def request_screen_snapshot(reason: str) -> dict:
-    """Ask for a screenshot. This never captures, uploads, or reads anything.
-    The user must manually choose an image and approve it in their PWA.
-    Request expires in 10 minutes. Push notification contains no private data.
-    """
-    if not ENABLED:
-        return {"status": "unavailable", "reason": "Owner setup not completed"}
-    reason = reason.strip()
-    if not (3 <= len(reason) <= 140):
-        return {"status": "invalid_reason", "reason": "3–140 characters required"}
-    async with LOCK:
-        cleanup()
-        if sum(x.state == "pending" for x in REQUESTS.values()) >= 3:
-            return {"status": "rate_limited"}
-        rid = secrets.token_urlsafe(24)
-        REQUESTS[rid] = Snapshot(time.time(), reason)
-    await notify_owner()
-    return {"request_id": rid, "status": "pending", "expires_in_seconds": 600,
-            "note": "Only the owner can approve and manually upload a screenshot."}
-
-
-@mcp.tool()
-async def get_screen_snapshot_status(request_id: str) -> dict:
-    """Check if a previously requested screenshot was approved or expired.
-    This never returns image data.
-    """
-    async with LOCK:
-        cleanup()
-        item = REQUESTS.get(safe_id(request_id))
-        return {"request_id": request_id, **status(item)} if item else {
-            "status": "not_found"}
-
-
-@mcp.tool()
-async def read_approved_screen_snapshot(request_id: str) -> list[TextContent | ImageContent]:
-    """Read an explicitly approved screenshot once. Deletes image before returning.
-    Repeated reads do not return the screenshot.
-    """
-    async with LOCK:
-        cleanup()
-        item = REQUESTS.get(safe_id(request_id))
-        if not item:
-            return [TextContent(type="text", text='{"status":"not_found"}')]
-        if item.state != "fulfilled" or not item.path:
-            return [TextContent(type="text", text=json.dumps(status(item)))]
-        path = Path(item.path)
-        try:
-            contents = path.read_bytes()
-        except FileNotFoundError:
-            item.state = "expired"
-            item.path = None
-            return [TextContent(type="text", text='{"status":"expired"}')]
-        path.unlink(missing_ok=True)
-        item.path = None
-        item.state = "viewed"
-    return [
-        TextContent(type="text", text=json.dumps({
-            "status": "viewed", "request_id": request_id,
-            "notice": "User selected and approved this image. No ongoing screen access exists."})),
-        ImageContent(type="image", mimeType="image/jpeg",
-                     data=base64.b64encode(contents).decode("ascii"))
-    ]
 
 
 def authenticated(scope):
