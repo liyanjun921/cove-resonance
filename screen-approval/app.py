@@ -250,6 +250,17 @@ class ScreenshotGate:
         self.mcp_app = mcp_app
 
     async def __call__(self, scope, receive, send):
+        if scope["type"] == "lifespan":
+            async def reap():
+                while True:
+                    await asyncio.sleep(15)
+                    async with LOCK:
+                        cleanup()
+            task = asyncio.create_task(reap())
+            try:
+                return await self.mcp_app(scope, receive, send)
+            finally:
+                task.cancel()
         if scope["type"] != "http":
             return await self.mcp_app(scope, receive, send)
         path = scope.get("path", "")
