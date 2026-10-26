@@ -98,6 +98,7 @@ def metadata(path):
         }
     return {
         "issuer": ORIGIN,
+        "authorization_response_iss_parameter_supported": True,
         "authorization_endpoint": ORIGIN + "/oauth/authorize",
         "token_endpoint": ORIGIN + "/oauth/token",
         "registration_endpoint": ORIGIN + "/oauth/register",
@@ -111,7 +112,9 @@ def metadata(path):
 
 def www_authenticate():
     # Resource is /mcp, so RFC 9728 uses path-specific metadata discovery.
-    return 'Bearer resource_metadata="' + ORIGIN + '/.well-known/oauth-protected-resource/mcp", scope="' + SCOPES + '"'
+    return ('Bearer resource_metadata="' + ORIGIN + '/.well-known/oauth-protected-resource/mcp", '
+            'scope="' + SCOPES + '", error="invalid_token", '
+            'error_description="Connect your private screenshot service to continue"')
 
 
 def authenticated(bearer):
@@ -187,7 +190,7 @@ def auth_request(params):
     return {
         "client_id": params["client_id"], "redirect_uri": redirect_uri,
         "challenge": challenge, "state": params.get("state", ""),
-        "scope": SCOPES,
+        "scope": SCOPES, "resource": params.get("resource", RESOURCE),
     }
 
 
@@ -280,7 +283,8 @@ async def route(scope, receive, send, reply):
                                              "redirect_uri":data["redirect_uri"],
                                              "response_type":"code","code_challenge":data["challenge"],
                                              "code_challenge_method":"S256",
-                                             "state":data["state"],"scope":data["scope"]})
+                                             "state":data["state"],"scope":data["scope"],
+                                             "resource":data["resource"]})
                 or not hmac.compare_digest(str(form.get("owner_secret","")),OWNER_SECRET)):
                 ATTEMPTS.setdefault(ip,[]).append(time.time())
                 await reply(send,{"error":"invalid_credentials_or_expired_request"},403)
@@ -289,7 +293,7 @@ async def route(scope, receive, send, reply):
             prune()
             code=secrets.token_urlsafe(32)
             CODES[code]={**data,"exp":time.time()+120}
-            query={"code":code}
+            query={"code":code,"iss":ORIGIN}
             if data["state"]:
                 query["state"]=data["state"]
             connector="&" if "?" in data["redirect_uri"] else "?"
@@ -318,20 +322,23 @@ async def route(scope, receive, send, reply):
             verifier=form.get("code_verifier","")
             if (not data or data["exp"] < now or data["client_id"] != client_id
                 or data["redirect_uri"] != form.get("redirect_uri","")
+                or form.get("resource", RESOURCE) != data["resource"]
                 or not re.fullmatch(r"[A-Za-z0-9._~-]{43,128}",verifier)
                 or enc(hashlib.sha256(verifier.encode()).digest()) != data["challenge"]):
                 await reply(send,{"error":"invalid_grant"},400)
                 return True
         elif grant == "refresh_token":
             refresh=verify(form.get("refresh_token",""),"refresh")
-            if not refresh or refresh.get("client_id") != client_id:
+            if (not refresh or refresh.get("client_id") != client_id
+                or form.get("resource", RESOURCE) != refresh.get("aud")):
                 await reply(send,{"error":"invalid_grant"},400)
                 return True
         else:
             await reply(send,{"error":"unsupported_grant_type"},400)
             return True
         claims={"sub":"owner","client_id":client_id,"iss":ORIGIN,
-                "aud":RESOURCE,"scope":SCOPES,"iat":now}
+                "aud":(data["resource"] if grant == "authorization_code" else refresh["aud"]),
+                "scope":SCOPES,"iat":now}
         access=sign({**claims,"kind":"access","exp":now+3600})
         refresh=sign({**claims,"kind":"refresh","exp":now+30*86400})
         await reply(send,{"access_token":access,"token_type":"Bearer",
