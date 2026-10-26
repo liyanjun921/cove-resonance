@@ -71,6 +71,9 @@ class OwnerOAuthTests(unittest.TestCase):
         meta=json.loads(body)
         self.assertEqual(meta["resource"],oauth.RESOURCE)
         self.assertIn(oauth.ORIGIN,meta["authorization_servers"])
+        self.assertTrue(oauth.metadata("/.well-known/oauth-authorization-server")["authorization_response_iss_parameter_supported"])
+        self.assertIn('error="invalid_token"', oauth.www_authenticate())
+        self.assertIn("error_description=", oauth.www_authenticate())
         self.assertIn("/.well-known/oauth-protected-resource/mcp",oauth.www_authenticate())
 
     def test_registration_rejects_unsafe_redirect(self):
@@ -100,6 +103,7 @@ class OwnerOAuthTests(unittest.TestCase):
         location=headers[b"location"].decode()
         params=parse_qs(urlsplit(location).query)
         self.assertEqual(params["state"],["s1"])
+        self.assertEqual(params["iss"],[oauth.ORIGIN])
         issued_code=params["code"][0]
         _,status,body,_=post_form("/oauth/token",{"grant_type":"authorization_code",
             "client_id":cid,"code":issued_code,"redirect_uri":redirect_uri,"code_verifier":verifier})
