@@ -20,6 +20,7 @@ import uvicorn
 import oauth
 from itsdangerous import BadSignature, SignatureExpired, TimestampSigner
 from mcp.server.fastmcp import FastMCP
+from mcp import types
 from mcp.types import ImageContent, TextContent
 from PIL import Image, ImageOps, UnidentifiedImageError
 from pywebpush import WebPushException, webpush
@@ -31,7 +32,8 @@ SESSION_SECRET = os.getenv("SNAPSHOT_SESSION_SECRET", "")
 VAPID_PRIVATE = os.getenv("VAPID_PRIVATE_KEY", "")
 VAPID_PUBLIC = os.getenv("VAPID_PUBLIC_KEY", "")
 VAPID_SUBJECT = os.getenv("VAPID_SUBJECT", "")
-ENABLED = all(len(s) >= 24 for s in (OWNER_SECRET, MCP_SECRET, SESSION_SECRET))
+ENABLED = all(len(s) >= 24 for s in (OWNER_SECRET, SESSION_SECRET))
+LEGACY_MCP_ENABLED = len(MCP_SECRET) >= 24
 signer = TimestampSigner(SESSION_SECRET) if SESSION_SECRET else None
 mcp = FastMCP("XLC Screenshot Approval", stateless_http=True,
               json_response=True, streamable_http_path="/mcp")
@@ -97,6 +99,133 @@ async def notify_owner():
         except (WebPushException, TimeoutError, Exception):
             # No screenshot or reason is ever included in the notification.
             SUBSCRIPTIONS.pop(key, None)
+
+
+
+# ChatGPT needs public tool discovery plus explicit OAuth security metadata.
+# A transport-level 401 prevents tools/list from being discovered, so only tool
+# invocation is protected and uses the MCP mcp/www_authenticate hint.
+OAUTH_SCOPES = ["snapshot:request", "snapshot:read"]
+OAUTH_SECURITY_SCHEMES = [{"type": "oauth2", "scopes": OAUTH_SCOPES}]
+TOOL_ANNOTATIONS = {
+    "request_screen_snapshot": {"readOnlyHint": False, "destructiveHint": False, "openWorldHint": False},
+    "get_screen_snapshot_status": {"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False},
+    "read_approved_screen_snapshot": {"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False},
+}
+
+
+@mcp._mcp_server.list_tools()
+async def _list_tools():
+    return [
+        types.Tool(
+            name="request_screen_snapshot",
+            title="Request a screenshot",
+            description=("Ask the owner to manually select, preview and upload one screenshot. "
+                         "This never captures the device screen automatically."),
+            inputSchema={"type": "object", "properties": {"reason": {"type": "string", "minLength": 3, "maxLength": 140}},
+                         "required": ["reason"], "additionalProperties": False},
+            securitySchemes=OAUTH_SECURITY_SCHEMES,
+            _meta={"securitySchemes": OAUTH_SECURITY_SCHEMES},
+            annotations=TOOL_ANNOTATIONS["request_screen_snapshot"],
+        ),
+        types.Tool(
+            name="get_screen_snapshot_status",
+            title="Check screenshot request",
+            description="Check whether an owner-approved screenshot request is pending, fulfilled, denied or expired.",
+            inputSchema={"type": "object", "properties": {"request_id": {"type": "string", "maxLength": 128}},
+                         "required": ["request_id"], "additionalProperties": False},
+            securitySchemes=OAUTH_SECURITY_SCHEMES,
+            _meta={"securitySchemes": OAUTH_SECURITY_SCHEMES},
+            annotations=TOOL_ANNOTATIONS["get_screen_snapshot_status"],
+        ),
+        types.Tool(
+            name="read_approved_screen_snapshot",
+            title="Read approved screenshot",
+            description="Read once the single screenshot the owner manually selected and explicitly uploaded.",
+            inputSchema={"type": "object", "properties": {"request_id": {"type": "string", "maxLength": 128}},
+                         "required": ["request_id"], "additionalProperties": False},
+            securitySchemes=OAUTH_SECURITY_SCHEMES,
+            _meta={"securitySchemes": OAUTH_SECURITY_SCHEMES},
+            annotations=TOOL_ANNOTATIONS["read_approved_screen_snapshot"],
+        ),
+    ]
+
+
+def _mcp_authorization_header():
+    try:
+        context = mcp._mcp_server.request_context
+    except LookupError:
+        return ""
+    request = getattr(context, "request", None)
+    headers = getattr(request, "headers", None)
+    if headers is not None:
+        try:
+            value = headers.get("authorization") or headers.get("Authorization")
+            if value:
+                return str(value).strip()
+        except Exception:
+            pass
+    scope = getattr(request, "scope", None)
+    if isinstance(scope, dict):
+        for key, value in scope.get("headers", []):
+            key = key.decode("latin-1") if isinstance(key, (bytes, bytearray)) else str(key)
+            if key.lower() == "authorization":
+                return value.decode("latin-1") if isinstance(value, (bytes, bytearray)) else str(value)
+    if isinstance(request, dict):
+        return str(request.get("authorization") or request.get("Authorization") or "")
+    return ""
+
+
+def _mcp_authorized():
+    header = _mcp_authorization_header()
+    oauth_ok = oauth.authenticated(header)
+    legacy_ok = bool(LEGACY_MCP_ENABLED) and hmac.compare_digest(
+        header.encode(), ("Bearer " + MCP_SECRET).encode())
+    return ENABLED and (oauth_ok or legacy_ok)
+
+
+def _oauth_required_result():
+    return types.ServerResult(types.CallToolResult(
+        content=[TextContent(type="text", text="Authentication required. Connect your private screenshot service to ChatGPT first.")],
+        _meta={"mcp/www_authenticate": [oauth.www_authenticate()]},
+        isError=True,
+    ))
+
+
+def _tool_error(message):
+    return types.ServerResult(types.CallToolResult(
+        content=[TextContent(type="text", text=message)],
+        isError=True,
+    ))
+
+
+async def _call_tool_request(req: types.CallToolRequest):
+    if not _mcp_authorized():
+        return _oauth_required_result()
+    name = req.params.name
+    arguments = req.params.arguments or {}
+    try:
+        if name == "request_screen_snapshot":
+            result = await request_screen_snapshot(**arguments)
+            return types.ServerResult(types.CallToolResult(
+                content=[TextContent(type="text", text=json.dumps(result, ensure_ascii=False))],
+                structuredContent=result,
+            ))
+        if name == "get_screen_snapshot_status":
+            result = await get_screen_snapshot_status(**arguments)
+            return types.ServerResult(types.CallToolResult(
+                content=[TextContent(type="text", text=json.dumps(result, ensure_ascii=False))],
+                structuredContent=result,
+            ))
+        if name == "read_approved_screen_snapshot":
+            result = await read_approved_screen_snapshot(**arguments)
+            return types.ServerResult(types.CallToolResult(content=result))
+    except (TypeError, ValueError) as exc:
+        return _tool_error("Invalid tool arguments: " + str(exc)[:200])
+    return _tool_error("Unknown tool: " + str(name))
+
+
+mcp._mcp_server.request_handlers[types.CallToolRequest] = _call_tool_request
 
 
 @mcp.tool()
@@ -383,13 +512,8 @@ class ScreenshotGate:
                             raise
                         return await reply(send, {"ok": True, "status": "fulfilled"})
             return await reply(send, {"error": "not_found"}, 404)
-        if not ENABLED:
-            return await reply(send, {"error": "owner_setup_required"}, 503)
-        auth_header = get_header(scope, "authorization")
-        legacy_token_ok = hmac.compare_digest(auth_header.encode(), ("Bearer " + MCP_SECRET).encode())
-        if not (legacy_token_ok or oauth.authenticated(auth_header)):
-            return await reply(send, {"error": "authorization_required"}, 401,
-                               headers=[(b"www-authenticate", oauth.www_authenticate().encode())])
+        # Keep MCP discovery reachable without a token. ChatGPT must see
+        # tool-level securitySchemes; protected calls return mcp/www_authenticate.
         return await self.mcp_app(scope, receive, send)
 
 
