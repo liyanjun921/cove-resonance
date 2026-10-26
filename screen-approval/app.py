@@ -20,6 +20,7 @@ import uvicorn
 import oauth
 from itsdangerous import BadSignature, SignatureExpired, TimestampSigner
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 from mcp import types
 from mcp.types import ImageContent, TextContent
 from PIL import Image, ImageOps, UnidentifiedImageError
@@ -36,7 +37,12 @@ ENABLED = all(len(s) >= 24 for s in (OWNER_SECRET, SESSION_SECRET))
 LEGACY_MCP_ENABLED = len(MCP_SECRET) >= 24
 signer = TimestampSigner(SESSION_SECRET) if SESSION_SECRET else None
 mcp = FastMCP("XLC Screenshot Approval", stateless_http=True,
-              json_response=True, streamable_http_path="/mcp")
+              json_response=True, streamable_http_path="/mcp",
+              transport_security=TransportSecuritySettings(
+                  allowed_hosts=["xlc-consent-snapshot.onrender.com",
+                                 "127.0.0.1:*", "localhost:*"],
+                  allowed_origins=["https://xlc-consent-snapshot.onrender.com"],
+              ))
 LOCK = asyncio.Lock()
 REQUESTS = {}
 SUBSCRIPTIONS = {}
