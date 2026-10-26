@@ -19,6 +19,7 @@ from urllib.parse import parse_qs
 import uvicorn
 from mi_fitness import MiHealthClient
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 from setup import check_data_state, setup_app
 from token_codec import parse_token
 
@@ -31,6 +32,13 @@ mcp = FastMCP(
     stateless_http=True,
     json_response=True,
     streamable_http_path="/mcp",
+    transport_security=TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=["xlc-mi-fitness-health-mcp.onrender.com",
+                       "localhost:*", "127.0.0.1:*"],
+        allowed_origins=["https://chatgpt.com", "https://www.chatgpt.com",
+                         "http://localhost:*", "http://127.0.0.1:*"],
+    ),
 )
 _token_path: str | None = None
 
