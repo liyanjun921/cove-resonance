@@ -24,6 +24,19 @@ class ScaffoldTests(unittest.TestCase):
         self.assertIn("xlc-mi-fitness-health-mcp.onrender.com", security.allowed_hosts)
         self.assertNotIn("*", security.allowed_hosts)
 
+    def test_public_mode_only_bypasses_mcp(self):
+        async def check(path, public):
+            nested = mock.AsyncMock()
+            send = mock.AsyncMock()
+            with mock.patch.object(health, "PUBLIC_READ_ONLY", public):
+                await health.PrivateGate(nested)({"type": "http", "path": path, "headers": [], "method": "GET"}, mock.AsyncMock(), send)
+            return nested, send
+        for path, public, allowed in [("/mcp", True, True), ("/mcp", False, False), ("/health", True, False), ("/health/status", True, False), ("/mcp/other", True, False)]:
+            nested, send = asyncio.run(check(path, public))
+            self.assertEqual(nested.await_count, int(allowed))
+            if not allowed:
+                self.assertEqual(send.call_args_list[0].args[0]["status"], 401)
+
     def test_date_validation(self):
         self.assertEqual(health._require_day("2026-10-26"), "2026-10-26")
         for bad in ["2026-02-30", "tomorrow", "2026/10/26", "2026-10-26 extra"]:
