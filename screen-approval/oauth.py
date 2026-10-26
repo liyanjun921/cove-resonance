@@ -110,7 +110,8 @@ def metadata(path):
 
 
 def www_authenticate():
-    return 'Bearer resource_metadata="' + ORIGIN + '/.well-known/oauth-protected-resource", scope="' + SCOPES + '"'
+    # Resource is /mcp, so RFC 9728 uses path-specific metadata discovery.
+    return 'Bearer resource_metadata="' + ORIGIN + '/.well-known/oauth-protected-resource/mcp", scope="' + SCOPES + '"'
 
 
 def authenticated(bearer):
