@@ -59,11 +59,29 @@ class ScreenshotTests(unittest.TestCase):
         s.SUBSCRIPTIONS.clear()
         s.LOGIN_ATTEMPTS.clear()
 
-    def test_unauthorized_mcp_is_closed(self):
-        code, data, _ = asyncio.run(http("/mcp", "POST", b"{}"))
-        self.assertEqual(code, 401)
-        self.assertEqual(data["error"], "authorization_required")
-        self.assertIn("resource_metadata", s.oauth.www_authenticate())
+    def test_tool_discovery_advertises_oauth_without_auth(self):
+        tools = asyncio.run(s._list_tools())
+        self.assertEqual(
+            {tool.name for tool in tools},
+            {"request_screen_snapshot", "get_screen_snapshot_status", "read_approved_screen_snapshot"},
+        )
+        for tool in tools:
+            serialized = json.dumps(tool.model_dump(mode="json", by_alias=True))
+            self.assertIn('"type": "oauth2"', serialized)
+            self.assertIn("snapshot:request", serialized)
+            self.assertIn("snapshot:read", serialized)
+
+    def test_unauthorized_tool_call_returns_mcp_auth_challenge(self):
+        from types import SimpleNamespace
+        request = SimpleNamespace(params=SimpleNamespace(
+            name="request_screen_snapshot",
+            arguments={"reason": "请授权一张截图"},
+        ))
+        result = asyncio.run(s._call_tool_request(request))
+        serialized = json.dumps(result.model_dump(mode="json", by_alias=True))
+        self.assertIn("mcp/www_authenticate", serialized)
+        self.assertIn("/.well-known/oauth-protected-resource/mcp", serialized)
+        self.assertNotIn("request_id", serialized)
 
     def test_login_requires_secret_and_origin(self):
         payload = json.dumps({"secret":os.environ["SNAPSHOT_OWNER_SECRET"]}).encode()
