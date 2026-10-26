@@ -1,6 +1,6 @@
 # XLC Private Mi Fitness Health MCP — first-stage implementation
 
-**Status: development scaffold; NOT linked to ChatGPT, NOT deployed, and NOT yet tested with a real Xiaomi account.**
+**Status (2026-10-26):** Isolated Render health service is deployed. User confirmed live Xiaomi family-share diagnostic returning sleep, heart-rate and steps available. Private ChatGPT plugin `xlc-mi-fitness-health` v0.1.0 has been created, but installation and **end-to-end ChatGPT tool calls are not yet verified**. The separate `HEALTH_CHATGPT_TOKEN` still needs to be set in Render by the account owner.
 
 This folder is independent of the music MCP. Nothing here changes the running NetEase/Cove bridge.
 
@@ -39,6 +39,28 @@ The optional HTTPS page `/setup` is disabled until you personally set a secret:
 - After successful configuration, remove or rotate `HEALTH_SETUP_SECRET` to disable the page. The in-memory credentials disappear on restart or after ten minutes.
 
 The setup page never copies Xiaomi tokens to GitHub. It does briefly keep the secondary-account token in memory and shows it to an administrator with the secret; only enable it while actively onboarding. Do not use any shared passwords for this setup page.
+
+## Existing private ChatGPT plugin (no OAuth)
+
+Private plugin: https://chatgpt.com/plugins/plugins_6adedb20cb8881919a0811c47355a83a
+
+The server's read-only MCP endpoint is `https://xlc-mi-fitness-health-mcp.onrender.com/mcp`.
+The plugin supplies a separate, private static `Authorization: Bearer` header.
+The owner must put the **matching key** in Render → health service → Environment
+under the name `HEALTH_CHATGPT_TOKEN` (merge; do not replace the existing
+`MI_TOKEN_B64`, `MI_RELATIVE_UID`, `HEALTH_MCP_BEARER_TOKEN` or `HEALTH_SETUP_SECRET`).
+The new key is **not** checked into GitHub; it lives only in the owner's
+private plugin package and server secret configuration.
+
+The static-header approach is less flexible than short-lived user OAuth and
+may not be supported by every ChatGPT MCP client. It must be tested by the
+user after installing the private plugin, and the token must be revoked if
+the plugin source is disclosed. **Never remove the bearer check to work
+around installation problems.**
+
+The tutorial-compatible `GET /health?date=YYYY-MM-DD&type=all` endpoint is
+protected by the same bearer middleware. Do not request it by opening the
+URL alone; that correctly returns HTTP 401.
 
 ## Local development
 
