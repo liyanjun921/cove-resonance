@@ -19,7 +19,7 @@ from urllib.parse import parse_qs
 import uvicorn
 from mi_fitness import MiHealthClient
 from mcp.server.fastmcp import FastMCP
-from setup import setup_app
+from setup import check_data_state, setup_app
 from token_codec import parse_token
 
 
@@ -171,6 +171,17 @@ async def _health_http(scope, receive, send):
     await send({"type":"http.response.body","body":body})
 
 
+async def _private_status(send):
+    """Authenticated diagnostics: permission and availability flags only."""
+    result = await check_data_state()
+    body = json.dumps(result, ensure_ascii=False).encode("utf-8")
+    await send({"type": "http.response.start", "status": 200,
+                "headers": [(b"content-type", b"application/json; charset=utf-8"),
+                            (b"cache-control", b"no-store"),
+                            (b"x-content-type-options", b"nosniff")]})
+    await send({"type": "http.response.body", "body": body})
+
+
 class PrivateGate:
     """Check a server-side bearer token before every MCP request.
 
@@ -209,6 +220,8 @@ class PrivateGate:
                 return
             if scope.get("path") == "/health" and scope.get("method") == "GET":
                 return await _health_http(scope, receive, send)
+            if scope.get("path") == "/health/status" and scope.get("method") == "GET":
+                return await _private_status(send)
         await self.nested_app(scope, receive, send)
 
 
