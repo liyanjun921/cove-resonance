@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#dbe6ef">
+<meta name="referrer" content="no-referrer">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="截图查岗">
+<link rel="manifest" href="/manifest.webmanifest">
+<title>谢临川 · 截图查岗</title>
+<style>
+:root{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Helvetica Neue",sans-serif;color:#35445b}
+*{box-sizing:border-box}body{margin:0;min-height:100dvh;background:radial-gradient(ellipse at 15% 5%,#d5dff7 0,transparent 55%),radial-gradient(ellipse at 90% 85%,#f5dae7 0,transparent 52%),linear-gradient(145deg,#eff7fc,#f9f6fd)}
+main{max-width:620px;margin:auto;padding:max(35px,env(safe-area-inset-top)) 18px max(28px,env(safe-area-inset-bottom))}
+small{letter-spacing:.18em;color:#8490a9}h1{font-size:27px;letter-spacing:-.04em;font-weight:650;margin:12px 0 3px}p{line-height:1.8;font-size:14px;color:#65738a}
+.card{background:rgba(255,255,255,.62);backdrop-filter:blur(22px) saturate(140%);-webkit-backdrop-filter:blur(22px) saturate(140%);box-shadow:0 13px 40px #a3b2c425,0 1px 1px #ffffffbb inset;border:1px solid #fff9;border-radius:27px;padding:22px;margin:16px 0}
+h2{font-size:15px;font-weight:650;margin:3px 0 10px}button,input{font:inherit}
+button{border:1px solid #fff9;border-radius:16px;background:#f5f9ff;color:#516684;padding:12px 18px;cursor:pointer;font-weight:600}
+button.primary{background:#6f849f;color:white;border-color:#7e91a9}
+button:disabled{opacity:.46;cursor:not-allowed}button.danger{color:#a55d75}
+input[type=password],input[type=file]{display:block;width:100%;border:1px solid #dfe5ec;border-radius:14px;background:#fff9;padding:12px;margin:12px 0}
+.controls{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
+#preview{display:none;max-width:100%;max-height:48vh;border-radius:16px;margin:16px auto;object-fit:contain;box-shadow:0 5px 20px #4c657122}
+#status{white-space:pre-wrap;min-height:28px;color:#57768d}
+.reason{font-size:17px;color:#405674;line-height:1.6;overflow-wrap:anywhere}
+.pill{display:inline-block;font-size:11px;letter-spacing:.04em;padding:5px 9px;border-radius:999px;background:#e7eff7}
+.hidden{display:none}
+.footer{font-size:11px;text-align:center;color:#96a3b5;margin-top:26px}
+</style>
+</head>
+<body><main>
+<small>PRIVATE • CONSENT FIRST</small>
+<h1>谢临川 · 截图查岗</h1>
+<p>想看什么，可以先问。要不要给他看，由你决定。<br>不会自动截屏，也不会读取未经你批准的图片。</p>
+<section id="login" class="card">
+<h2>先验证是你本人</h2>
+<p>输入你在 Render 环境变量中设置的私人登录密码。不要把密码发到聊天里。</p>
+<input id="password" type="password" autocomplete="current-password" placeholder="私人登录密码">
+<button id="loginButton" class="primary">解锁我的申请箱</button>
+</section>
+<section id="panel" class="hidden">
+<div class="card">
+<h2>待处理申请 <span class="pill" id="count">0</span></h2>
+<p id="empty">暂无待处理申请。</p>
+<div id="requests"></div>
+<button id="refresh">刷新申请箱</button>
+</div>
+<div class="card">
+<h2>手机通知</h2>
+<p>在 iPhone Safari 将此网页「添加到主屏幕」，从主屏幕打开，然后点击启用提醒。申请通知没有文字理由，也不会包含任何隐私截图。</p>
+<button id="notify">启用 iPhone 提醒</button>
+<p id="pushState"></p>
+</div>
+</section>
+<p id="status" aria-live="polite"></p>
+<div class="footer">仅手动授权 · 图片一次性读取 · 10 分钟超时销毁 · 独立于音乐和健康服务</div>
+</main>
+<script src="/app.js" defer></script>
+</body></html>
