@@ -42,13 +42,15 @@ The setup page never copies Xiaomi tokens to GitHub. It does briefly keep the se
 
 ## Private ChatGPT plugin and authentication
 
-Use the existing private API-key plugin at https://chatgpt.com/plugins/plugins_6ade9d80ff408191ac4be50f6dd7aedf . Its MCP configuration declares user-entered API-key Bearer authentication and contains no access key. The two older plugin packages were updated to remove embedded Authorization headers, but keeping three similarly named plugins may be confusing; choose this one for connection testing.
+**ChatGPT connection remains pending.** The existing private plugin package at https://chatgpt.com/plugins/plugins_6ade9d80ff408191ac4be50f6dd7aedf declares `auth.type: api_key`, but the current ChatGPT plugin connection form does not expose a field for a fixed API key. The manifest schema accepts this declaration; it does not guarantee a usable ChatGPT connection UI. Do not ask the owner to paste `HEALTH_CHATGPT_TOKEN` into chat or to disable server authentication. See the official [plugin packaging authentication limitations](https://developers.openai.com/plugins/build/plugins) and [MCP authentication guide](https://developers.openai.com/plugins/build/auth).
 
-The server accepts two distinct Bearer secrets: `HEALTH_MCP_BEARER_TOKEN` for direct operator tests and `HEALTH_CHATGPT_TOKEN` for ChatGPT. Both were rotated on 2026-10-26. In the official connection UI, use only the current `HEALTH_CHATGPT_TOKEN` value from the Render service's private Environment settings. Never paste it into chat, a plugin ZIP, GitHub, a URL, or an issue. The previous static plugin keys now return HTTP 401.
+To use the health MCP in ordinary ChatGPT conversations, implement a supported OAuth 2.1 authorization-code + PKCE flow with a real authorization server and protected-resource metadata, then update the **existing** private plugin to OAuth and complete its connection. The four protected tools must then be tested in a normal ChatGPT chat and the hourly task separately. No such ChatGPT-hosted connection has yet been verified.
 
-The MCP host allowlist explicitly includes this service's Render domain. A prior public MCP handshake returned HTTP 421 `Invalid Host header`; this was fixed while retaining DNS rebinding protection and Bearer authentication. A direct authenticated MCP client has since initialized and called all four tools successfully. This **does not establish** that the ChatGPT plugin is installed or connected.
+The service accepts two distinct Bearer secrets: `HEALTH_MCP_BEARER_TOKEN` for operator tests and `HEALTH_CHATGPT_TOKEN` for the prior experiment. Both were rotated on 2026-10-26. The previous static plugin keys return HTTP 401. Keep existing authentication in place while changing the ChatGPT integration.
 
-A guarded `GET /health/status` uses either valid service Bearer key and returns only share-permission and data-availability flags, not measurements or identifiers. `GET /healthz` only reports basic configuration. Anonymous access to either `/health/status`, `/health`, or `/mcp` is denied with HTTP 401.
+The MCP host allowlist includes this service's exact Render domain. A prior public MCP handshake returned HTTP 421 `Invalid Host header`; this was fixed with DNS rebinding protection still enabled. A direct authenticated MCP client has initialized and called all four tools successfully. This **does not establish** ChatGPT app access.
+
+A guarded `GET /health/status` uses a valid service Bearer key and returns only share-permission and data-availability flags, not measurements or identifiers. `GET /healthz` reports basic configuration. Anonymous access to `/health/status`, `/health`, and `/mcp` is denied with HTTP 401.
 
 ## Local development
 
