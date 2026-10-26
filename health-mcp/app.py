@@ -4,7 +4,7 @@ This is a deployment scaffold, not a live health integration. Requires a Xiaomi
 family-share grant, a server-side token, a relative UID, and client auth.
 Never expose this as a public unauthenticated MCP endpoint.
 """
-import base64
+import asyncio
 import dataclasses
 import datetime as dt
 import enum
@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 import tempfile
 from typing import Any
+from urllib.parse import parse_qs
 
 import uvicorn
 from mi_fitness import MiHealthClient
@@ -23,6 +24,7 @@ from token_codec import parse_token
 
 
 MCP_SECRET = os.getenv("HEALTH_MCP_BEARER_TOKEN", "")
+CHATGPT_SECRET = os.getenv("HEALTH_CHATGPT_TOKEN", "")
 RELATIVE_UID = os.getenv("MI_RELATIVE_UID", "").strip()
 mcp = FastMCP(
     "XLC Private Mi Fitness Health",
@@ -136,6 +138,39 @@ async def get_daily_summary(date: str) -> dict[str, Any]:
     return await _query("daily_summary", date)
 
 
+
+async def _health_http(scope, receive, send):
+    """Tutorial-compatible GET /health?date=YYYY-MM-DD&type=all.
+
+    Health readings are protected by the same bearer check as /mcp.
+    No account ID or credentials are accepted through query parameters.
+    """
+    status = 200
+    params = parse_qs(scope.get("query_string", b"").decode("ascii", "replace"))
+    day = params.get("date", [""])[0]
+    kind = params.get("type", ["all"])[0]
+    kind_map = {"all": "daily_summary", "sleep": "sleep",
+                "heart_rate": "heart_rate", "steps": "steps"}
+    try:
+        if kind not in kind_map:
+            raise ValueError("unsupported type")
+        result = await asyncio.wait_for(_query(kind_map[kind], day), timeout=35)
+        body = json.dumps({"ok": True, **result}, ensure_ascii=False).encode("utf-8")
+    except ValueError:
+        status = 400
+        body = b'{"ok":false,"error":"invalid_date_or_type"}'
+    except (TimeoutError, Exception):
+        # No raw provider errors or private health data in error responses.
+        status = 502
+        body = b'{"ok":false,"error":"provider_unavailable"}'
+    await send({"type":"http.response.start","status":status,"headers":[
+        (b"content-type",b"application/json; charset=utf-8"),
+        (b"cache-control",b"no-store"),
+        (b"x-content-type-options",b"nosniff"),
+    ]})
+    await send({"type":"http.response.body","body":body})
+
+
 class PrivateGate:
     """Check a server-side bearer token before every MCP request.
 
@@ -162,14 +197,18 @@ class PrivateGate:
                 await send({"type": "http.response.body", "body": payload})
                 return
             auth = next((v for k, v in scope.get("headers", []) if k.lower() == b"authorization"), b"")
-            expected = ("Bearer " + MCP_SECRET).encode("utf-8")
-            if not MCP_SECRET or not hmac.compare_digest(auth, expected):
+            valid_keys = [key for key in (MCP_SECRET, CHATGPT_SECRET) if key]
+            allowed = any(hmac.compare_digest(auth, ("Bearer " + key).encode("utf-8"))
+                          for key in valid_keys)
+            if not allowed:
                 await send({"type": "http.response.start", "status": 401,
                             "headers": [(b"content-type", b"application/json"),
                                         (b"cache-control", b"no-store"),
                                         (b"www-authenticate", b"Bearer")]})
                 await send({"type": "http.response.body", "body": b'{"error":"unauthorized"}'})
                 return
+            if scope.get("path") == "/health" and scope.get("method") == "GET":
+                return await _health_http(scope, receive, send)
         await self.nested_app(scope, receive, send)
 
 
