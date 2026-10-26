@@ -42,6 +42,50 @@ mcp = FastMCP(
     ),
 )
 _token_path: str | None = None
+# The integration queries modern Mi Fitness records in UTC+08:00, as the SDK does.
+DISPLAY_TIMEZONE = dt.timezone(dt.timedelta(hours=8))
+
+
+def _timestamp_details(value: Any, now: dt.datetime) -> dict[str, Any]:
+    """Decode SDK Unix seconds exactly once; never silently shift source data."""
+    result = {"raw": value, "unit": "unix_seconds"}
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        return {**result, "status": "missing_or_invalid"}
+    try:
+        instant = dt.datetime.fromtimestamp(value, tz=dt.timezone.utc)
+    except (OverflowError, OSError, ValueError):
+        return {**result, "status": "out_of_range"}
+    age = int((now - instant).total_seconds())
+    return {**result, "utc": instant.isoformat(),
+            "local": instant.astimezone(DISPLAY_TIMEZONE).isoformat(),
+            "age_seconds": age,
+            "status": "future" if instant > now else "at_or_before_query"}
+
+
+def _time_metadata(data: Any, now: dt.datetime) -> dict[str, Any]:
+    """Separate daily buckets from sample times without exposing extra records."""
+    timestamps = {}
+
+    def visit(value, path):
+        if isinstance(value, dict):
+            for key, child in value.items():
+                child_path = f"{path}.{key}"
+                if key in {"time", "bedtime", "wake_up_time"}:
+                    timestamps[child_path] = _timestamp_details(child, now)
+                else:
+                    visit(child, child_path)
+        elif isinstance(value, list):
+            for index, child in enumerate(value):
+                visit(child, f"{path}[{index}]")
+
+    visit(data, "data")
+    return {"timezone": "Asia/Shanghai", "queried_at_utc": now.isoformat(),
+            "queried_at_local": now.astimezone(DISPLAY_TIMEZONE).isoformat(),
+            "timestamps": timestamps,
+            "note": "Daily time is a bucket label, not a sample or sync time. "
+                    "Use latest_hr.time for heart-rate sample time. "
+                    "Query time is not sync time. Future timestamps are unverified; "
+                    "do not report them as current readings."}
 
 
 def _require_day(value: str) -> str:
@@ -120,7 +164,9 @@ async def _query(kind: str, date: str) -> dict[str, Any]:
             records = await client.get_daily_summary(relative_uid, query_date)
         else:
             raise ValueError("Unsupported data type")
-    return {"date": day, "kind": kind, "data": _serialize(records)}
+    data = _serialize(records)
+    return {"date": day, "kind": kind, "data": data,
+            "time_metadata": _time_metadata(data, dt.datetime.now(dt.timezone.utc))}
 
 
 @mcp.tool()
@@ -208,6 +254,9 @@ class PrivateGate:
             if scope.get("path") == "/healthz":
                 payload = json.dumps({
                     "ok": True,
+                    "time_format_version": 1,
+                    "timezone": "Asia/Shanghai",
+                    "server_time": dt.datetime.now(DISPLAY_TIMEZONE).isoformat(),
                     "configured": bool(MCP_SECRET and RELATIVE_UID and
                                        (os.getenv("MI_TOKEN_FILE") or os.getenv("MI_TOKEN_B64"))),
                 }).encode("utf-8")

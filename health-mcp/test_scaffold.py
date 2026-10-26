@@ -50,11 +50,34 @@ class ScaffoldTests(unittest.TestCase):
             mock.patch.object(health.MiHealthClient, "from_token", return_value=FakeClient()),
         ):
             result = asyncio.run(health._query("sleep", "2026-10-26"))
-        self.assertEqual(result, {
+        self.assertEqual({key: result[key] for key in ("date", "kind", "data")}, {
             "date": "2026-10-26",
             "kind": "sleep",
             "data": [{"minutes": 420}],
         })
+        self.assertEqual(result["time_metadata"]["timezone"], "Asia/Shanghai")
+
+    def test_timestamp_conversion_and_future_detection(self):
+        now = dt.datetime(2026, 10, 26, 14, 0, tzinfo=dt.timezone.utc)
+        sample = int(now.timestamp()) - 300
+        data = [{"time": int(dt.datetime(2026, 10, 25, 16, tzinfo=dt.timezone.utc).timestamp()),
+                 "latest_hr": {"time": sample, "bpm": 80}}]
+        metadata = health._time_metadata(data, now)
+        bucket = metadata["timestamps"]["data[0].time"]
+        reading = metadata["timestamps"]["data[0].latest_hr.time"]
+        self.assertEqual(bucket["local"], "2026-10-26T00:00:00+08:00")
+        self.assertEqual(reading["local"], "2026-10-26T21:55:00+08:00")
+        self.assertEqual(reading["age_seconds"], 300)
+        self.assertEqual(data[0]["latest_hr"]["time"], sample)
+        future = health._timestamp_details(int(now.timestamp()) + 3600, now)
+        self.assertEqual(future["status"], "future")
+        self.assertEqual(future["age_seconds"], -3600)
+
+    def test_invalid_timestamps_do_not_break_query(self):
+        now = dt.datetime.now(dt.timezone.utc)
+        for value in (None, 0, -1, True, "123"):
+            self.assertEqual(health._timestamp_details(value, now)["status"], "missing_or_invalid")
+        self.assertEqual(health._timestamp_details(10**30, now)["status"], "out_of_range")
 
     def test_non_numeric_relative_uid_rejected(self):
         with mock.patch.object(health, "RELATIVE_UID", "not-a-number"):
