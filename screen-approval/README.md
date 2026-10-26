@@ -73,3 +73,9 @@ This service does NOT secretly access apps, background-record, scrape screen con
 ## OAuth verification
 
 Run `python -m unittest discover -s screen-approval -p 'test_*.py' -v` in CI. The OAuth tests cover discovery metadata, rejecting non-ChatGPT redirects, explicit owner password/consent, authorization-code PKCE, refresh-token flow, replay rejection and unauthorized MCP access. Live ChatGPT installation, user-facing login UI and real iPhone push/read must still be tested independently; passing unit tests does not prove host compatibility.
+
+## Live MCP connection diagnosis (2026-10-26)
+
+A real POST to `/mcp` returned HTTP 421 `Invalid Host header` even though `/healthz` and OAuth discovery returned 200. The MCP Python SDK blocked the Render hostname before `initialize` or `tools/list`; this prevented ChatGPT from seeing the tools and starting tool-level OAuth. The FastMCP transport now allowlists the exact public Render host and origin. The unauthenticated tool response includes `mcp/www_authenticate` with `error` and `error_description`; authorization responses include RFC 9207 `iss` and the metadata advertises it. These changes are limited to `screen-approval/`.
+
+After each deployment, verify with real HTTP POST requests to `/mcp`: `initialize` and `tools/list` must return 200 with all three `securitySchemes`, while `tools/call` without a token must return an error result with `mcp/www_authenticate` and no request ID or image. Check dynamic registration, authorization GET, PKCE token exchange and refresh. A real ChatGPT connection and iPhone PWA approval remain separate end-to-end gates; deployment and local probes cannot certify them. Do not enter the owner password in ChatGPT chat or commit it to this repository.
