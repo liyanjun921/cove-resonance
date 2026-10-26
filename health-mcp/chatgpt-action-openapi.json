@@ -1,0 +1,103 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "XLC Mi Fitness Read-Only Health",
+    "version": "0.1.0",
+    "description": "Read the account owner's Xiaomi Mi Fitness synchronized data, with the owner's explicit authorization. No live measurements or medical diagnosis. Uses the existing /health endpoint."
+  },
+  "servers": [
+    {
+      "url": "https://xlc-mi-fitness-health-mcp.onrender.com"
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "operationId": "readXiaomiMiFitnessHealth",
+        "summary": "Read consented sleep, heart rate, steps or daily summary for a date",
+        "description": "Read synchronized Xiaomi Mi Fitness data only when the account owner asks. Specify the owner's local calendar date (YYYY-MM-DD). Missing data is not zero. Be clear that sync timestamps and timezone may lag. Do not forward measurements to unrelated services.",
+        "parameters": [
+          {
+            "name": "date",
+            "in": "query",
+            "required": true,
+            "description": "Local calendar day requested by the owner, YYYY-MM-DD",
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "example": "2026-10-26"
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "required": true,
+            "description": "Measurement category",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "all",
+                "sleep",
+                "heart_rate",
+                "steps"
+              ],
+              "default": "all"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "User-authorized, synchronized health records. Exact fields vary by Mi Fitness SDK response; never infer missing readings.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "date": {
+                      "type": "string"
+                    },
+                    "kind": {
+                      "type": "string"
+                    },
+                    "data": {}
+                  },
+                  "required": [
+                    "ok",
+                    "date",
+                    "kind"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Date or measurement type invalid"
+          },
+          "401": {
+            "description": "Missing or incorrect private access key"
+          },
+          "502": {
+            "description": "Mi Fitness unavailable or data could not be read"
+          }
+        },
+        "security": [
+          {
+            "healthBearer": []
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "healthBearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Use the existing Render HEALTH_MCP_BEARER_TOKEN, configured only in the GPT Action authentication UI. Never put tokens in this schema."
+      }
+    }
+  }
+}
