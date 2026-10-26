@@ -18,6 +18,12 @@ class FakeClient:
 
 
 class ScaffoldTests(unittest.TestCase):
+    def test_public_mcp_host_is_explicitly_allowed(self):
+        security = health.mcp.settings.transport_security
+        self.assertTrue(security.enable_dns_rebinding_protection)
+        self.assertIn("xlc-mi-fitness-health-mcp.onrender.com", security.allowed_hosts)
+        self.assertNotIn("*", security.allowed_hosts)
+
     def test_date_validation(self):
         self.assertEqual(health._require_day("2026-10-26"), "2026-10-26")
         for bad in ["2026-02-30", "tomorrow", "2026/10/26", "2026-10-26 extra"]:
