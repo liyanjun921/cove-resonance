@@ -1,6 +1,6 @@
-# XLC Private Mi Fitness Health MCP — first-stage implementation
+# XLC Private Mi Fitness Health MCP
 
-**Status (2026-10-26):** Isolated Render health service is deployed. User confirmed live Xiaomi family-share diagnostic returning sleep, heart-rate and steps available. Private ChatGPT plugin `xlc-mi-fitness-health` v0.1.0 has been created, but installation and **end-to-end ChatGPT tool calls are not yet verified**. The separate `HEALTH_CHATGPT_TOKEN` still needs to be set in Render by the account owner.
+**Status (2026-10-26):** Render's isolated health service is live. An authenticated, real Xiaomi family-share check succeeds for sleep, heart rate and steps. On 2026-10-26 the four MCP tools completed real nonempty reads for 2026-10-25 from an external MCP client. **Official ChatGPT installation, API-key connection, and scheduled-task use are not yet verified.** Two legacy private plugin packages had static headers removed and their former keys were revoked; use the API-key plugin described below.
 
 This folder is independent of the music MCP. Nothing here changes the running NetEase/Cove bridge.
 
@@ -40,27 +40,15 @@ The optional HTTPS page `/setup` is disabled until you personally set a secret:
 
 The setup page never copies Xiaomi tokens to GitHub. It does briefly keep the secondary-account token in memory and shows it to an administrator with the secret; only enable it while actively onboarding. Do not use any shared passwords for this setup page.
 
-## Existing private ChatGPT plugin (no OAuth)
+## Private ChatGPT plugin and authentication
 
-Private plugin: https://chatgpt.com/plugins/plugins_6adedb20cb8881919a0811c47355a83a
+Use the existing private API-key plugin at https://chatgpt.com/plugins/plugins_6ade9d80ff408191ac4be50f6dd7aedf . Its MCP configuration declares user-entered API-key Bearer authentication and contains no access key. The two older plugin packages were updated to remove embedded Authorization headers, but keeping three similarly named plugins may be confusing; choose this one for connection testing.
 
-The server's read-only MCP endpoint is `https://xlc-mi-fitness-health-mcp.onrender.com/mcp`.
-The plugin supplies a separate, private static `Authorization: Bearer` header.
-The owner must put the **matching key** in Render → health service → Environment
-under the name `HEALTH_CHATGPT_TOKEN` (merge; do not replace the existing
-`MI_TOKEN_B64`, `MI_RELATIVE_UID`, `HEALTH_MCP_BEARER_TOKEN` or `HEALTH_SETUP_SECRET`).
-The new key is **not** checked into GitHub; it lives only in the owner's
-private plugin package and server secret configuration.
+The server accepts two distinct Bearer secrets: `HEALTH_MCP_BEARER_TOKEN` for direct operator tests and `HEALTH_CHATGPT_TOKEN` for ChatGPT. Both were rotated on 2026-10-26. In the official connection UI, use only the current `HEALTH_CHATGPT_TOKEN` value from the Render service's private Environment settings. Never paste it into chat, a plugin ZIP, GitHub, a URL, or an issue. The previous static plugin keys now return HTTP 401.
 
-The static-header approach is less flexible than short-lived user OAuth and
-may not be supported by every ChatGPT MCP client. It must be tested by the
-user after installing the private plugin, and the token must be revoked if
-the plugin source is disclosed. **Never remove the bearer check to work
-around installation problems.**
+The MCP host allowlist explicitly includes this service's Render domain. A prior public MCP handshake returned HTTP 421 `Invalid Host header`; this was fixed while retaining DNS rebinding protection and Bearer authentication. A direct authenticated MCP client has since initialized and called all four tools successfully. This **does not establish** that the ChatGPT plugin is installed or connected.
 
-The tutorial-compatible `GET /health?date=YYYY-MM-DD&type=all` endpoint is
-protected by the same bearer middleware. Do not request it by opening the
-URL alone; that correctly returns HTTP 401.
+A guarded `GET /health/status` uses either valid service Bearer key and returns only share-permission and data-availability flags, not measurements or identifiers. `GET /healthz` only reports basic configuration. Anonymous access to either `/health/status`, `/health`, or `/mcp` is denied with HTTP 401.
 
 ## Local development
 
@@ -94,7 +82,7 @@ Create a **separate** web service with root directory `health-mcp/`, Docker runt
 
 ## ChatGPT integration — not finished
 
-The standalone server exposes a protected Streamable HTTP MCP endpoint at `/mcp`. **This bearer-gated development endpoint is not by itself proof that a ChatGPT private app can authenticate to it.** Before connecting the real ChatGPT user, implement and verify a ChatGPT-supported secure auth/OAuth flow or another supported credential integration. Do not temporarily remove the authentication gate or publish a no-auth health MCP just to get it to appear in ChatGPT.
+The standalone server exposes a protected Streamable HTTP MCP endpoint at `/mcp`, and a direct client has authenticated and called all four tools. **This is not proof of a connected ChatGPT app.** Install and connect the existing API-key plugin securely in ChatGPT, then run each tool in a normal chat before claiming that integration works. Do not temporarily remove the authentication gate or publish a no-auth health MCP just to get it to appear in ChatGPT.
 
 The original requested outcome (the assistant reading the band without repeated screenshots) is only complete after:
 - confirming the user's actual fitness app,
