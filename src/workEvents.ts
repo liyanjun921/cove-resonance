@@ -358,13 +358,18 @@ export async function handleWorkEvents(req: IncomingMessage, res: ServerResponse
       }
       const challenge = randomBytes(24).toString("base64url");
       let verified = false;
+      let verificationStatus = 0;
       try {
         const result = await callbackPost(delivery.url, secret, "msg_verification_" + randomBytes(12).toString("hex"),
           subId, JSON.stringify({ type: "verification", challenge }));
+        verificationStatus = result.status;
         const echo = JSON.parse(result.body) as unknown;
         verified = result.status >= 200 && result.status < 300 && object(echo) &&
           typeof echo.challenge === "string" && equalSecret(challenge, echo.challenge);
-      } catch { /* invalid destination or callback failure */ }
+      } catch (error) {
+        console.warn("Work event callback verification error", error instanceof Error ? error.message : "unknown");
+      }
+      if (!verified) console.warn("Work event callback verification failed", verificationStatus);
       if (!verified) { json(res, 200, rpcError(id, -32015, "CallbackEndpointError", { reason: "challenge_failed" })); return; }
       const expires_at = new Date(Date.now() + 30 * 24 * 3600_000).toISOString();
       await store.upsert({ id: subId, name, arguments: args, url: delivery.url, secret, expires_at });
