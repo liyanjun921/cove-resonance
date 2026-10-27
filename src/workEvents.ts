@@ -185,7 +185,10 @@ async function callbackPost(url: string, secret: string, id: string, subId: stri
   return await new Promise((resolve, reject) => {
     const req = httpsRequest(parsed, {
       method: "POST", timeout: 10_000,
-      lookup: (_hostname, _opts, cb) => cb(null, pinned.address, pinned.family),
+      lookup: (_hostname, opts, cb) => {
+        if (opts.all) cb(null, [pinned]);
+        else cb(null, pinned.address, pinned.family);
+      },
       headers: {
         "content-type": "application/json", "content-length": Buffer.byteLength(body),
         "webhook-id": id, "webhook-timestamp": String(timestamp),
