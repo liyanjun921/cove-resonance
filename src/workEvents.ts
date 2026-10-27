@@ -287,11 +287,19 @@ async function dispatch(): Promise<{ delivered: number; retried: number }> {
 }
 
 export async function handleWorkEvents(req: IncomingMessage, res: ServerResponse, path: string): Promise<void> {
-  const mcp = path === "/mcp/work";
+  const linked = path.startsWith("/mcp/work-link/");
+  const linkToken = linked ? path.slice("/mcp/work-link/".length) : "";
+  const mcp = path === "/mcp/work" || linked;
   const expected = mcp ? process.env.WORK_EVENTS_MCP_TOKEN :
     path === "/work/tick" ? process.env.WORK_EVENTS_TICK_TOKEN : process.env.WORK_EVENTS_INGEST_TOKEN;
-  if (mcp ? !await authorizedOwner(req, true) : !equalSecret(expected ?? "", bearer(req))) {
-    if (mcp) unauthorized(res); else json(res, 401, { error: "unauthorized" }); return;
+  const allowed = linked
+    ? /^[A-Za-z0-9_-]{43,}$/.test(linkToken) && equalSecret(process.env.WORK_EVENTS_LINK_TOKEN ?? "", linkToken)
+    : mcp ? await authorizedOwner(req, true) : equalSecret(expected ?? "", bearer(req));
+  if (!allowed) {
+    if (linked) json(res, 404, { error: "not_found" });
+    else if (mcp) unauthorized(res);
+    else json(res, 401, { error: "unauthorized" });
+    return;
   }
   if (!store.configured) { json(res, 503, { error: "work_event_store_unconfigured" }); return; }
   if (req.method !== "POST") { json(res, 405, { error: "method_not_allowed" }); return; }
