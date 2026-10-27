@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>小米运动健康 · 私人授权</title>
+<style>
+:root{color-scheme:light;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",system-ui,sans-serif}
+body{margin:0;min-height:100vh;background:linear-gradient(138deg,#e8f0fd,#f8f9fc 50%,#e8edf4);color:#213047;display:flex;justify-content:center;align-items:center;padding:20px;box-sizing:border-box}
+main{width:100%;max-width:460px;background:rgba(255,255,255,.83);border:1px solid rgba(255,255,255,.9);border-radius:26px;box-shadow:0 22px 80px #8196b429;padding:28px;box-sizing:border-box}
+h1{font-size:24px;margin:0 0 10px}p{font-size:14px;line-height:1.8;color:#536278}
+label{display:block;font-size:13px;margin:18px 0 7px;color:#526176}
+input{width:100%;box-sizing:border-box;padding:13px 14px;border-radius:13px;border:1px solid #bbc8da;font-size:15px;background:#fff}
+button{font:inherit;border:0;border-radius:13px;padding:12px 16px;background:#37659e;color:#fff;cursor:pointer;margin:6px 6px 6px 0}
+button:disabled{background:#a8b6c6;cursor:not-allowed}
+button.alt{color:#31527d;background:#e3ebf5}
+#qr{display:none;max-width:240px;width:100%;margin:18px auto;border-radius:12px;background:#fff}
+pre{white-space:pre-wrap;word-break:break-all;background:#f0f5fa;border-radius:12px;padding:12px;font-size:13px;line-height:1.5}
+a{color:#285b92}small{font-size:12px;color:#66778c;line-height:1.7}
+#result{margin:12px 0;min-height:24px}
+</style>
+</head>
+<body><main>
+<h1>健康数据 · 私人授权 ♡</h1>
+<p>只用于你自己的小米运动健康小号授权。此页面需要管理员密码；小米账号密码不用交给任何人。</p>
+<label for="key">HEALTH_SETUP_SECRET（在 Render 环境变量中设置）</label>
+<input id="key" type="password" autocomplete="off" placeholder="输入你自己设置的管理密钥">
+<div><button id="begin">获取小号登录二维码</button><button class="alt" id="check">检查状态</button></div>
+<div id="result" role="status">尚未开始授权。</div>
+<div><button class="alt" id="selfcheck">验证现有凭证能否读取数据</button></div>
+<p><small>此检测只显示授权范围和睡眠/心率/步数是否有同步记录，不会展示或下载实际健康数值，也不需要重新扫码。</small></p>
+<pre id="diagnostic" hidden></pre>
+<img id="qr" alt="小米账号扫码登录二维码">
+<div id="after" hidden>
+<p><strong>扫码完成。</strong> 请确认下方亲友 UID 与授权的字段。随后手动把令牌存入 Render 的 <code>MI_TOKEN_B64</code> 私密环境变量；不要发到聊天、GitHub 或社交平台。</p>
+<pre id="relatives"></pre>
+<button id="export">显示一次性凭证</button><div id="manualCopy" hidden><textarea id="tokenText" readonly rows="6" spellcheck="false" style="width:100%;box-sizing:border-box;font-family:monospace;overflow-wrap:anywhere"></textarea><p><small>长按文本框，选择全选、复制。仅粘贴到 Render 的 MI_TOKEN_B64，不要截图或分享。</small></p><button id="selectAll" type="button">选中全部</button><button id="hideToken" type="button">隐藏并清空</button></div>
+<button class="alt" id="forget">清除临时登录数据</button>
+<p><small>二维码与登录结果仅暂存在服务器内存，重启或超时失效。此处的 Base64 不是加密，不要分享。你仍须给服务设置 MI_RELATIVE_UID 并完成 ChatGPT 认证。</small></p>
+</div>
+<p><small>请用你的小米<b>小号</b>扫码。大号继续保持手环连接，亲友共享应由大号授权给小号。需要使用另一台设备或将二维码展示在电脑屏幕上，以便手机系统相机扫描。</small></p>
+<a href="https://dashboard.render.com/web/srv-dbf3iaks728c73e02gtg" rel="noreferrer">打开我的 Render 健康服务</a>
+</main>
+<script>
+(() => {
+ const key = document.getElementById('key'), status = document.getElementById('result');
+ const qr = document.getElementById('qr'), after = document.getElementById('after');
+ const relatives = document.getElementById('relatives');
+ let ticker = null;
+ async function call(path, method='GET') {
+   const res = await fetch(path,{method,headers:{'x-health-setup-secret':key.value.trim()},cache:'no-store'});
+   let data;
+   try { data=await res.json(); } catch { throw new Error('服务器返回了非 JSON 响应'); }
+   if(!res.ok) throw new Error(res.status===401?'管理密钥不正确，或尚未在 Render 设置':(data.error||('HTTP '+res.status)));
+   return data;
+ }
+ function render(d){
+   if(d.phase!=='authorized' && typeof clearToken==='function') clearToken();
+   after.hidden=d.phase!=='authorized';
+   qr.style.display=d.phase==='qr' && d.qr_image_url?'block':'none';
+   if(d.phase==='qr' && d.qr_image_url) qr.src=d.qr_image_url;
+   if(d.phase==='authorized'){
+     qr.removeAttribute('src');
+     relatives.textContent=JSON.stringify(d.relatives||[],null,2);
+     status.textContent='小号已扫码成功。请将凭证保存到 Render 环境变量。';
+     if(ticker){clearInterval(ticker);ticker=null;}
+   }else{
+     const words={idle:'尚未开始授权。',starting:'正在获取小米登录二维码……',qr:'二维码已生成，请用小号扫码确认（约 5 分钟内有效）。',expired:'二维码或临时结果过期，请重新开始。',error:'登录失败，可重新发起。错误类型：'+(d.error_type||'unknown')};
+     status.textContent=words[d.phase]||('当前状态：'+d.phase);
+   }
+ }
+ async function check(){
+   try {render(await call('/setup/status'));}
+   catch(e){status.textContent=e.message;if(ticker){clearInterval(ticker);ticker=null;}}
+ }
+ document.getElementById('begin').onclick=async()=>{
+   try {render(await call('/setup/start','POST')); await check(); if(ticker)clearInterval(ticker); ticker=setInterval(check,2500);}
+   catch(e){status.textContent=e.message;}
+ };
+ document.getElementById('check').onclick=check;
+ document.getElementById('selfcheck').onclick=async()=>{
+   const target=document.getElementById('diagnostic');
+   target.hidden=false;target.textContent='正在通过小米健康接口核验授权和最近同步的记录……';
+   try {
+     const r=await call('/setup/check-data','POST');
+     const errors={
+       configuration_missing:'小米凭证或亲友 UID 未配置齐全。',
+       relative_uid_invalid:'亲友 UID 不是有效数字，请检查 Render 中的 MI_RELATIVE_UID。',
+       token_invalid:'小号凭证格式异常。请检查 MI_TOKEN_B64。',
+       token_missing:'Render 中缺少小号登录凭证 MI_TOKEN_B64。',
+       token_too_large:'保存的凭证内容异常长，可能复制了整段网页。',
+       token_not_base64:'MI_TOKEN_B64 不是有效 Base64/JSON，很可能复制了错误内容或截断了。请重新复制二维码授权页面生成的完整一次性凭证。',
+       token_decoded_not_text:'保存内容能够 Base64 解码，但不是可识别的文本，请重新复制。',
+       token_json_not_xiaomi:'保存内容能解码为 JSON，但不是小米 SDK 的登录凭证，可能复制了网页提示而非一次性凭证。',
+       token_nested_too_deep:'保存的凭证被重复封装过多次，请重新复制原始凭证。',
+       relative_not_found:'小号的亲友列表里没有找到配置中的大号 UID。',
+       scopes_missing:'找到了亲友，但尚未共享全部三项数据。请在小米运动健康授权界面检查。',
+       provider_timeout:'查询小米服务器超时，可以稍后再试。',
+       TokenExpiredError:'小米登录凭证过期，需要重新授权。',
+       AuthError:'小米接口拒绝了小号登录验证。',
+       APIError:'小米接口返回错误，请检查同步状态和授权。',
+       provider_error:'读取失败，可能是小米接口暂时不可用。'
+     };
+     if(r.ok){
+       const names={sleep:'睡眠',heart_rate:'心率',steps:'步数'};
+       target.textContent='✅ 小米亲友权限与实际查询成功！\\n'+
+         Object.entries(r.available||{}).map(([k,v])=>names[k]+': '+(v?'有同步记录':'暂无同步记录')).join('\\n')+
+         '\\n没有显示任何具体健康数值。';
+     }else{
+       target.textContent='尚未完成实际数据验证：'+(errors[r.code]||('错误类型：'+r.code))+
+         (r.missing?.length?'\\n未共享字段：'+r.missing.join('、'):'');
+     }
+   }catch(e){target.textContent='检测未完成：'+e.message;}
+ };
+
+ const manualCopy=document.getElementById('manualCopy');
+ const tokenText=document.getElementById('tokenText');
+ function clearToken(){tokenText.value='';manualCopy.hidden=true;}
+ document.getElementById('export').onclick=async()=>{
+   clearToken();
+   try{
+     const d=await call('/setup/export','POST');
+     if(typeof d.token_base64!=='string' || !d.token_base64) throw new Error('没有可供显示的凭证');
+     tokenText.value=d.token_base64;
+     manualCopy.hidden=false;
+     status.textContent='完整凭证已显示在下方文本框。长按全选，再复制到 Render。';
+   }catch(e){status.textContent='无法显示：'+e.message;}
+ };
+ document.getElementById('selectAll').onclick=()=>{
+   tokenText.focus();
+   tokenText.select();
+   tokenText.setSelectionRange(0,tokenText.value.length);
+ };
+ document.getElementById('hideToken').onclick=clearToken;
+ window.addEventListener('pagehide',clearToken);
+ document.getElementById('forget').onclick=async()=>{
+   clearToken();
+   try {await call('/setup/forget','POST');await check();}
+   catch(e){status.textContent=e.message;}
+ };
+})();
+</script></body></html>

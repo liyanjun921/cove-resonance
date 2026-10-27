@@ -1,0 +1,31 @@
+name: Private Xiaomi Health MCP (offline tests)
+on:
+  pull_request:
+    paths:
+      - 'health-mcp/**'
+      - '.github/workflows/health-mcp-ci.yml'
+  push:
+    branches:
+      - feat/private-mi-fitness-health-mcp
+    paths:
+      - 'health-mcp/**'
+      - '.github/workflows/health-mcp-ci.yml'
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install SDK + MCP dependencies
+        working-directory: health-mcp
+        run: python -m pip install -r requirements.txt
+      - name: Syntax checks
+        working-directory: health-mcp
+        run: python -m compileall -q app.py login_once.py verify_share.py setup.py token_codec.py test_scaffold.py test_selfcheck.py test_token_codec.py test_tutorial.py
+      - name: Offline read-only contract and auth tests
+        working-directory: health-mcp
+        run: python -m unittest -v test_scaffold.py test_selfcheck.py test_token_codec.py test_tutorial.py
