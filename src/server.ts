@@ -118,7 +118,8 @@ export function createHttpServer() {
       return;
     }
     if (ISOLATED_MODE && process.env.WORK_EVENTS_ENABLED === "true" &&
-        ["/mcp/work", "/work/events", "/work/tick"].includes(url.pathname)) {
+        (["/mcp/work", "/work/events", "/work/tick"].includes(url.pathname) ||
+          url.pathname.startsWith("/mcp/work-link/"))) {
       await handleWorkEvents(req, res, url.pathname);
       return;
     }
