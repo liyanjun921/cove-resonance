@@ -25,6 +25,10 @@ test("Work MCP discovery is authenticated and isolated from external ingress", a
     assert.deepEqual(result.result.supportedVersions, ["2026-07-28"]);
     assert.ok(result.result.capabilities.events);
 
+    const consent = await fetch(base + "/oauth/consent?authorization_id=test-request");
+    assert.equal(consent.headers.get("cache-control"), "no-store");
+    assert.match(await consent.text(), /\/oauth\/consent\.js\?v=2/);
+
     const ingress = await fetch(base + "/work/events", {
       method: "POST", headers: { Authorization: "Bearer mcp-local-only-test", "content-type": "application/json" },
       body: JSON.stringify({ eventId: "e", source: "pwa.chat", text: "hello" }),
