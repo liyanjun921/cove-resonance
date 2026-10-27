@@ -2,7 +2,7 @@
 -- xlc_work_tick, and configuring the same token as WORK_EVENTS_TICK_TOKEN on
 -- the isolated Render service. Never commit the token to this repository.
 create extension if not exists pg_cron;
-create extension if not exists pg_net;
+create extension if not exists pg_net with schema extensions;
 
 select cron.schedule(
   'xlc_work_events_quarter_hour',
