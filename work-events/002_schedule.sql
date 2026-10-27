@@ -1,8 +1,8 @@
 -- Apply after storing a random tick token in Supabase Vault under the name
 -- xlc_work_tick, and configuring the same token as WORK_EVENTS_TICK_TOKEN on
 -- the isolated Render service. Never commit the token to this repository.
-create extension if not exists pg_cron with schema pg_catalog;
-create extension if not exists pg_net with schema extensions;
+create extension if not exists pg_cron;
+create extension if not exists pg_net;
 
 select cron.schedule(
   'xlc_work_events_quarter_hour',

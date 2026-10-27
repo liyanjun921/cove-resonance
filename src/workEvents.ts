@@ -220,11 +220,11 @@ async function dispatch(): Promise<{ delivered: number; retried: number }> {
 }
 
 export async function handleWorkEvents(req: IncomingMessage, res: ServerResponse, path: string): Promise<void> {
-  if (!store.configured) { json(res, 503, { error: "work_event_store_unconfigured" }); return; }
   const mcp = path === "/mcp/work";
   const expected = mcp ? process.env.WORK_EVENTS_MCP_TOKEN :
-    path === "/work/tick" ? process.env.WORK_EVENTS_TICK_TOKEN : process.env.BRIDGE_INGEST_TOKEN;
+    path === "/work/tick" ? process.env.WORK_EVENTS_TICK_TOKEN : process.env.WORK_EVENTS_INGEST_TOKEN;
   if (!equalSecret(expected ?? "", bearer(req))) { json(res, 401, { error: "unauthorized" }); return; }
+  if (!store.configured) { json(res, 503, { error: "work_event_store_unconfigured" }); return; }
   if (req.method !== "POST") { json(res, 405, { error: "method_not_allowed" }); return; }
   try {
     const input = await readBody(req);
