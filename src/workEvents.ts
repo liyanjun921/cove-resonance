@@ -76,21 +76,25 @@ async function authorizedOwner(req: IncomingMessage, requireOAuth = false): Prom
   const token = bearer(req);
   if (!token) return false;
   if (equalSecret(process.env.WORK_EVENTS_MCP_TOKEN ?? "", token)) return true;
-  if (!process.env.WORK_EVENTS_OWNER_USER_ID) return false;
+  if (!process.env.WORK_EVENTS_OWNER_USER_ID && !process.env.WORK_EVENTS_OWNER_EMAIL_SHA256) return false;
   try {
     const response = await fetch(`${projectUrl}/auth/v1/user`, {
       headers: { apikey: publishableKey, Authorization: `Bearer ${token}` },
       signal: AbortSignal.timeout(5000),
     });
     if (!response.ok) return false;
-    const user = await response.json() as { id?: string };
-    if (user.id !== process.env.WORK_EVENTS_OWNER_USER_ID) return false;
+    const user = await response.json() as { id?: string; email?: string; email_confirmed_at?: string };
+    const byId = Boolean(process.env.WORK_EVENTS_OWNER_USER_ID && user.id === process.env.WORK_EVENTS_OWNER_USER_ID);
+    const emailHash = user.email && createHash("sha256").update(user.email.trim().toLowerCase()).digest("hex");
+    const byEmail = Boolean(user.email_confirmed_at && process.env.WORK_EVENTS_OWNER_EMAIL_SHA256 &&
+      emailHash && equalSecret(process.env.WORK_EVENTS_OWNER_EMAIL_SHA256, emailHash));
+    if (!byId && !byEmail) return false;
     if (!requireOAuth) return true;
     const claims = JSON.parse(Buffer.from(token.split(".")[1] ?? "", "base64url").toString("utf8")) as {
       iss?: string; sub?: string; client_id?: string;
     };
     return claims.iss === `${projectUrl}/auth/v1` && claims.sub === user.id &&
-      typeof claims.client_id === "string" && claims.client_id.length > 0;
+      Boolean(process.env.WORK_EVENTS_OAUTH_CLIENT_ID) && claims.client_id === process.env.WORK_EVENTS_OAUTH_CLIENT_ID;
   } catch { return false; }
 }
 
@@ -112,7 +116,7 @@ export async function handleWorkOAuth(req: IncomingMessage, res: ServerResponse,
     res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store",
       "content-security-policy": `default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self' ${projectUrl}; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
       "referrer-policy": "no-referrer", "x-content-type-options": "nosniff" });
-    res.end(`<!doctype html><html lang="zh"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>连接谢临川 Work 事件桥</title><link rel="stylesheet" href="/oauth/consent.css"><main><h1>连接 Work 事件桥</h1><p id="message" role="status">正在检查授权请求…</p><section id="view" hidden><label>邮箱 <input id="email" type="email" autocomplete="email"></label><button id="sign-in">发送验证码</button><label>验证码 <input id="otp" inputmode="numeric" autocomplete="one-time-code" hidden></label><button id="verify" hidden>验证</button></section><section id="details" hidden><p>账号：<strong id="account"></strong></p><p>应用：<strong id="client"></strong></p><p>回调地址：<strong id="destination"></strong></p><p>权限：<strong id="scopes"></strong></p><button id="approve">允许连接</button><button id="deny">拒绝</button></section></main><script src="/oauth/consent.js" defer></script></html>`);
+    res.end(`<!doctype html><html lang="zh"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>连接谢临川 Work 事件桥</title><link rel="stylesheet" href="/oauth/consent.css"><main><h1>连接 Work 事件桥</h1><p id="message" role="status">正在检查授权请求…</p><section id="view" hidden><label>邮箱 <input id="email" type="email" autocomplete="email"></label><button id="sign-in">发送登录链接</button></section><section id="details" hidden><p>账号：<strong id="account"></strong></p><p>应用：<strong id="client"></strong></p><p>回调地址：<strong id="destination"></strong></p><p>权限：<strong id="scopes"></strong></p><button id="approve">允许连接</button><button id="deny">拒绝</button></section></main><script src="/oauth/consent.js" defer></script></html>`);
     return;
   }
   if (path === "/oauth/consent.css" && req.method === "GET") {
