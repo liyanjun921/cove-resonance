@@ -14,6 +14,7 @@ import { ListenerWakeScheduler } from "./listenerWakeScheduler.js";
 import { PlaybackStateStore } from "./netease/playbackState.js";
 import { createTogetherWorker } from "./netease/togetherWorker.js";
 import { InMemoryEventQueue } from "./queue.js";
+import { handleWorkEvents } from "./workEvents.js";
 
 const PORT = Number(process.env.PORT ?? 8787);
 const INGEST_TOKEN = process.env.BRIDGE_INGEST_TOKEN ?? "";
@@ -105,6 +106,14 @@ export function createHttpServer() {
         listener: listenerWakeHub.status(),
         ...(ISOLATED_MODE ? { listenerWake: listenerWakeScheduler.status() } : {}),
       });
+      return;
+    }
+
+    // Work Events are a separate, explicitly enabled Host adapter. The music
+    // MCP endpoint and the legacy in-memory Listener never consume these rows.
+    if (ISOLATED_MODE && process.env.WORK_EVENTS_ENABLED === "true" &&
+        ["/mcp/work", "/work/events", "/work/tick"].includes(url.pathname)) {
+      await handleWorkEvents(req, res, url.pathname);
       return;
     }
 
