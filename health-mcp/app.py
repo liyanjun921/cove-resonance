@@ -22,6 +22,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 from setup import check_data_state, setup_app
 from token_codec import parse_token
+from live_heart_rate import get_live_heart_rate as _get_live_heart_rate
 
 
 MCP_SECRET = os.getenv("HEALTH_MCP_BEARER_TOKEN", "")
@@ -181,6 +182,12 @@ async def _query(kind: str, date: str) -> dict[str, Any]:
     data = _serialize(records)
     return {"date": day, "kind": kind, "data": data,
             "time_metadata": _time_metadata(data, dt.datetime.now(dt.timezone.utc))}
+
+
+@mcp.tool()
+async def get_live_heart_rate() -> dict[str, Any]:
+    """Read a new heart-rate update from the owner's HypeRate iPhone stream. Wait up to 27 seconds. Check status and received_at; sensor sample time and end-to-end latency are unknown. No cached/cloud-history fallback."""
+    return await _get_live_heart_rate()
 
 
 @mcp.tool()

@@ -123,3 +123,26 @@ Future timestamps remain flagged after normalization and must not be presented
 as current vitals. Daily heart-rate `time` identifies a day bucket, not the
 latest sample. `/healthz` reports `time_format_version: 2` and server time;
 neither a healthy clock nor a recent sample proves continuous real-time sync.
+
+## HypeRate iPhone broadcast bridge
+
+`get_live_heart_rate()` subscribes on demand to the owner's configured HypeRate
+channel using the official Phoenix WebSocket protocol documented at
+https://github.com/HypeRate/DevDocs. It does not change Xiaomi history tools.
+
+Set `HYPERATE_API_KEY` (secret) and `HYPERATE_ID` (owner's stream ID) in Render.
+The API key is never returned or logged. The caller cannot choose an arbitrary
+channel or URL. No demo or random data source is used. The phone must be sending
+heart rate through HypeRate, with the band's Share HR enabled.
+
+Each query opens a bounded connection and closes it after a frame or timeout.
+`status=received` means a channel update was received during this query;
+`received_at` is server reception time, **not** sensor measurement time.
+`sampled_at=null` and unknown end-to-end latency are intentional because the
+protocol does not supply a verified sample timestamp. No history value is used
+when live reads fail. This is not continuous GPT execution, background polling,
+or a verified guarantee of iOS lock-screen streaming. Keep the API key private.
+
+After deployment, refresh the existing ChatGPT MCP connection's tool list to
+load `get_live_heart_rate`. Verify the server, ChatGPT tool availability, and
+phone lock-screen behavior separately.
