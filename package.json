@@ -7,7 +7,7 @@
     "node": "22.x"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && esbuild work-events/consent.ts --bundle --minify --format=iife --platform=browser --outfile=dist/work-events/consent.js",
     "start": "node dist/src/server.js",
     "dev": "tsx src/server.ts",
     "typecheck": "tsc --noEmit",
@@ -16,12 +16,14 @@
   "dependencies": {
     "@modelcontextprotocol/ext-apps": "1.7.5",
     "@modelcontextprotocol/sdk": "1.30.0",
+    "@supabase/supabase-js": "^2.76.1",
     "NeteaseCloudMusicApi": "4.32.0",
     "node-nim": "10.10.13",
     "zod": "4.6.5"
   },
   "devDependencies": {
     "@types/node": "22.20.2",
+    "esbuild": "^0.25.12",
     "tsx": "4.23.13",
     "typescript": "5.9.3"
   }

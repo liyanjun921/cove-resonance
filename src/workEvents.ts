@@ -3,6 +3,7 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypt
 import { lookup } from "node:dns/promises";
 import { request as httpsRequest } from "node:https";
 import { isIP } from "node:net";
+import { readFile } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
 type Subscription = {
@@ -64,6 +65,68 @@ function object(value: unknown): value is Record<string, unknown> {
 function bearer(req: IncomingMessage): string | undefined {
   const value = req.headers.authorization;
   return value?.startsWith("Bearer ") ? value.slice(7) : undefined;
+}
+
+const projectUrl = "https://kmligdmvjenjjlvrpqha.supabase.co";
+const publishableKey = "sb_publishable_8UA5IAna561eaG3zy1PYkA_oA91TTbp";
+const resource = "https://xlc-general-bridge-lyj.onrender.com/mcp/work";
+const metadataUrl = "https://xlc-general-bridge-lyj.onrender.com/.well-known/oauth-protected-resource/mcp/work";
+
+async function authorizedOwner(req: IncomingMessage, requireOAuth = false): Promise<boolean> {
+  const token = bearer(req);
+  if (!token) return false;
+  if (equalSecret(process.env.WORK_EVENTS_MCP_TOKEN ?? "", token)) return true;
+  if (!process.env.WORK_EVENTS_OWNER_USER_ID) return false;
+  try {
+    const response = await fetch(`${projectUrl}/auth/v1/user`, {
+      headers: { apikey: publishableKey, Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok) return false;
+    const user = await response.json() as { id?: string };
+    if (user.id !== process.env.WORK_EVENTS_OWNER_USER_ID) return false;
+    if (!requireOAuth) return true;
+    const claims = JSON.parse(Buffer.from(token.split(".")[1] ?? "", "base64url").toString("utf8")) as {
+      iss?: string; sub?: string; client_id?: string;
+    };
+    return claims.iss === `${projectUrl}/auth/v1` && claims.sub === user.id &&
+      typeof claims.client_id === "string" && claims.client_id.length > 0;
+  } catch { return false; }
+}
+
+function unauthorized(res: ServerResponse): void {
+  res.setHeader("WWW-Authenticate", `Bearer resource_metadata="${metadataUrl}"`);
+  json(res, 401, { error: "unauthorized" });
+}
+
+export async function handleWorkOAuth(req: IncomingMessage, res: ServerResponse, path: string): Promise<void> {
+  if (path === "/.well-known/oauth-protected-resource/mcp/work" && req.method === "GET") {
+    json(res, 200, { resource, authorization_servers: [`${projectUrl}/auth/v1`], bearer_methods_supported: ["header"] });
+    return;
+  }
+  if (path === "/oauth/owner" && req.method === "GET") {
+    if (!await authorizedOwner(req)) { unauthorized(res); return; }
+    json(res, 200, { allowed: true }); return;
+  }
+  if (path === "/oauth/consent" && req.method === "GET") {
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store",
+      "content-security-policy": `default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self' ${projectUrl}; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
+      "referrer-policy": "no-referrer", "x-content-type-options": "nosniff" });
+    res.end(`<!doctype html><html lang="zh"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>连接谢临川 Work 事件桥</title><link rel="stylesheet" href="/oauth/consent.css"><main><h1>连接 Work 事件桥</h1><p id="message" role="status">正在检查授权请求…</p><section id="view" hidden><label>邮箱 <input id="email" type="email" autocomplete="email"></label><button id="sign-in">发送验证码</button><label>验证码 <input id="otp" inputmode="numeric" autocomplete="one-time-code" hidden></label><button id="verify" hidden>验证</button></section><section id="details" hidden><p>账号：<strong id="account"></strong></p><p>应用：<strong id="client"></strong></p><p>回调地址：<strong id="destination"></strong></p><p>权限：<strong id="scopes"></strong></p><button id="approve">允许连接</button><button id="deny">拒绝</button></section></main><script src="/oauth/consent.js" defer></script></html>`);
+    return;
+  }
+  if (path === "/oauth/consent.css" && req.method === "GET") {
+    res.writeHead(200, { "content-type": "text/css; charset=utf-8", "cache-control": "public, max-age=3600", "x-content-type-options": "nosniff" });
+    res.end(`:root{font:16px system-ui;color:#e8e7f2;background:#16151e}main{max-width:560px;margin:10vh auto;padding:32px;background:#24232f;border-radius:18px}h1{font-size:1.65rem}label{display:block;margin:18px 0}input{display:block;box-sizing:border-box;width:100%;margin-top:8px;padding:12px;border:1px solid #77718a;border-radius:8px;background:#16151e;color:inherit}button{padding:12px 18px;margin:8px 10px 8px 0;border:0;border-radius:8px;background:#a88ce6;color:#17121f;font-weight:600;cursor:pointer}button:disabled{opacity:.5}strong{overflow-wrap:anywhere}#message{line-height:1.6}`);
+    return;
+  }
+  if (path === "/oauth/consent.js" && req.method === "GET") {
+    try {
+      const script = await readFile(new URL("../work-events/consent.js", import.meta.url));
+      res.writeHead(200, { "content-type": "text/javascript; charset=utf-8", "cache-control": "public, max-age=3600", "x-content-type-options": "nosniff" });
+      res.end(script);
+    } catch { json(res, 503, { error: "consent_ui_unavailable" }); }
+  }
 }
 
 function rpcError(id: unknown, code: number, message: string, data?: unknown) {
@@ -223,7 +286,9 @@ export async function handleWorkEvents(req: IncomingMessage, res: ServerResponse
   const mcp = path === "/mcp/work";
   const expected = mcp ? process.env.WORK_EVENTS_MCP_TOKEN :
     path === "/work/tick" ? process.env.WORK_EVENTS_TICK_TOKEN : process.env.WORK_EVENTS_INGEST_TOKEN;
-  if (!equalSecret(expected ?? "", bearer(req))) { json(res, 401, { error: "unauthorized" }); return; }
+  if (mcp ? !await authorizedOwner(req, true) : !equalSecret(expected ?? "", bearer(req))) {
+    if (mcp) unauthorized(res); else json(res, 401, { error: "unauthorized" }); return;
+  }
   if (!store.configured) { json(res, 503, { error: "work_event_store_unconfigured" }); return; }
   if (req.method !== "POST") { json(res, 405, { error: "method_not_allowed" }); return; }
   try {

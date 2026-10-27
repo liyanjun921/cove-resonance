@@ -6,7 +6,13 @@
       "url": "https://xlc-general-bridge-lyj.onrender.com/mcp/work",
       "extensions": {
         "com.openai": {
-          "auth": { "type": "api_key", "headerScheme": "bearer" }
+          "auth": {
+            "type": "oauth",
+            "client": { "mode": "dcr" },
+            "authorizationServerBase": "https://kmligdmvjenjjlvrpqha.supabase.co/auth/v1",
+            "resource": "https://xlc-general-bridge-lyj.onrender.com/mcp/work",
+            "defaultScopes": ["email"]
+          }
         }
       }
     }
