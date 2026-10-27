@@ -39,7 +39,9 @@ Deno.serve(async (req: Request) => {
     },
     ...(input.method === "GET" || input.method === "DELETE" ? {} : { body: JSON.stringify(input.body ?? {}) }),
   });
-  return new Response(await response.text(), {
+  const responseBody = response.status === 204 || response.status === 205 || response.status === 304
+    ? null : await response.text();
+  return new Response(responseBody, {
     status: response.status,
     headers: { "content-type": response.headers.get("content-type") ?? "application/json" },
   });
