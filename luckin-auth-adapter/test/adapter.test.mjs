@@ -1,0 +1,252 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import http from 'node:http';
+import { randomBytes, createHash } from 'node:crypto';
+import { createAdapter } from '../server.mjs';
+
+const BASE = 'https://coffee-adapter.example';
+const CALLBACK = 'https://chatgpt.com/connector_platform_oauth_redirect';
+const RESOURCE = `${BASE}/mcp`;
+const ENV = {
+  PUBLIC_BASE_URL: BASE,
+  ADAPTER_SIGNING_KEY: 'mock-signing-key-for-local-tests-only-000000000',
+  OWNER_LOGIN_SECRET: 'mock-owner-key-for-local-tests-only-1111111111',
+  LUCKIN_TOKEN: 'mock-luckin-token-not-a-real-credential',
+};
+const sha = s => createHash('sha256').update(s).digest('base64url');
+
+async function fixture(t, options = {}) {
+  const calls = [];
+  const mockFetch = async (url, init) => {
+    const message = JSON.parse(init.body);
+    calls.push({ url, headers: init.headers, message });
+    assert.equal(url, 'https://gwmcp.lkcoffee.com/order/user/mcp');
+    assert.equal(init.headers.Authorization, `Bearer ${ENV.LUCKIN_TOKEN}`);
+    assert.equal(init.redirect, 'error');
+    if (options.upstreamStatus) return new Response(`mock secret echo: ${ENV.LUCKIN_TOKEN}`, { status: options.upstreamStatus });
+    if (!Object.hasOwn(message, 'id')) return new Response(null, { status: 202 });
+    let result;
+    if (message.method === 'initialize') {
+      result = { protocolVersion: '2025-03-26', capabilities: { tools: {}, resources: {} }, serverInfo: { name: 'mock-only-luckin', version: 'test' } };
+    } else if (message.method === 'tools/list') {
+      const schema = { type: 'object', properties: { deptName: { type: 'string' }, longitude: { type: 'number' }, latitude: { type: 'number' } }, required: ['longitude', 'latitude'] };
+      result = { tools: ['queryShopList', 'previewOrder', 'createOrder', 'cancelOrder', 'unknownFutureTool'].map(name => ({ name, inputSchema: schema, description: `MOCK ${name}` })) };
+    } else if (message.method === 'tools/call') {
+      result = { content: [{ type: 'text', text: JSON.stringify({ source: 'mock-only', echo: message.params.arguments, shouldBeRedacted: ENV.LUCKIN_TOKEN }) }] };
+    } else result = {};
+    const rpc = { jsonrpc: '2.0', id: message.id, result };
+    if (options.sse && message.method === 'tools/list') {
+      const text = `: mock heartbeat\r\n\r\nevent: message\r\ndata: ${JSON.stringify(rpc)}\r\n\r\n`;
+      const bytes = new TextEncoder().encode(text);
+      return new Response(new ReadableStream({ start(controller) {
+        for (let i = 0; i < bytes.length; i += 13) controller.enqueue(bytes.slice(i, i + 13));
+        controller.close();
+      } }), { headers: { 'content-type': 'text/event-stream' } });
+    }
+    return Response.json(rpc, { headers: message.method === 'initialize' ? { 'mcp-session-id': 'mock-upstream-session' } : {} });
+  };
+  let clock = 1900000000;
+  const env = { ...ENV, ...options.env };
+  const adapter = createAdapter(env, { fetch: mockFetch, now: () => clock });
+  const server = http.createServer(adapter.handle);
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => { server.closeAllConnections(); server.close(resolve); }));
+  const local = `http://127.0.0.1:${server.address().port}`;
+  const request = (path, { headers = {}, json, form, ...rest } = {}) => fetch(local + path, {
+    redirect: 'manual', ...rest,
+    headers: { ...json !== undefined ? { 'content-type': 'application/json' } : {}, ...form ? { 'content-type': 'application/x-www-form-urlencoded' } : {}, ...headers },
+    ...json !== undefined ? { method: 'POST', body: JSON.stringify(json) } : {},
+    ...form ? { method: 'POST', body: new URLSearchParams(form) } : {},
+  });
+  const rpc = (method, params, access, session, id = 1) => request('/mcp', {
+    headers: { accept: 'application/json, text/event-stream', ...access ? { authorization: `Bearer ${access}` } : {}, ...session ? { 'mcp-session-id': session } : {} },
+    json: { jsonrpc: '2.0', id, method, params },
+  });
+  async function registration(redirect = CALLBACK) {
+    const response = await request('/oauth/register', { json: { redirect_uris: [redirect], token_endpoint_auth_method: 'none', grant_types: ['authorization_code'] } });
+    return { response, result: await response.json() };
+  }
+  async function authorization(overrides = {}) {
+    const { result: c } = await registration();
+    const verifier = randomBytes(32).toString('base64url');
+    const query = { client_id: c.client_id, redirect_uri: CALLBACK, response_type: 'code', code_challenge_method: 'S256', code_challenge: sha(verifier), resource: RESOURCE, state: 'mock-state', scope: 'luckin:read', ...overrides };
+    const page = await request('/oauth/authorize?' + new URLSearchParams(query));
+    const html = await page.text();
+    const ticket = html.match(/name="ticket" value="([^"]+)"/)?.[1];
+    const cookie = page.headers.get('set-cookie')?.split(';')[0];
+    return { page, html, ticket, cookie, verifier, clientId: c.client_id, query };
+  }
+  async function approvedCode(a = null) {
+    a ||= await authorization();
+    const approval = await request('/oauth/authorize', { headers: { origin: BASE, cookie: a.cookie }, form: { ticket: a.ticket, owner_secret: ENV.OWNER_LOGIN_SECRET } });
+    assert.equal(approval.status, 303);
+    const location = new URL(approval.headers.get('location'));
+    assert.equal(location.origin, 'https://chatgpt.com');
+    assert.equal(location.searchParams.get('state'), 'mock-state');
+    assert.equal(location.searchParams.get('iss'), BASE);
+    return { ...a, code: location.searchParams.get('code') };
+  }
+  async function exchange(a, overrides = {}) {
+    return request('/oauth/token', { form: { grant_type: 'authorization_code', client_id: a.clientId, redirect_uri: CALLBACK, resource: RESOURCE, code_verifier: a.verifier, code: a.code, ...overrides } });
+  }
+  async function login() {
+    const a = await approvedCode();
+    const response = await exchange(a);
+    assert.equal(response.status, 200);
+    const result = await response.json();
+    assert.equal(result.scope, 'luckin:read');
+    assert.equal(result.expires_in, 86400);
+    assert.equal(result.refresh_token, undefined);
+    return result.access_token;
+  }
+  async function initialize(access) {
+    const response = await rpc('initialize', { protocolVersion: '2025-03-26', capabilities: { sampling: {} }, clientInfo: { name: 'mock-client', version: 'test' } }, access);
+    assert.equal(response.status, 200);
+    const result = await response.json();
+    assert.equal(result.result.serverInfo.name, 'mock-only-luckin');
+    assert.deepEqual(result.result.capabilities, { tools: {} });
+    assert.deepEqual(calls[0].message.params.capabilities, {});
+    return response.headers.get('mcp-session-id');
+  }
+  return { request, rpc, registration, authorization, approvedCode, exchange, login, initialize, calls, tick: seconds => { clock += seconds; } };
+}
+
+test('anonymous MCP access fails before upstream; discovery advertises PKCE and the exact resource', async t => {
+  const f = await fixture(t);
+  const r = await f.rpc('initialize', {}, null);
+  assert.equal(r.status, 401);
+  assert.match(r.headers.get('www-authenticate'), /oauth-protected-resource\/mcp/);
+  assert.equal(f.calls.length, 0);
+  const metadata = await (await f.request('/.well-known/oauth-protected-resource/mcp')).json();
+  assert.equal(metadata.resource, RESOURCE);
+  const oauth = await (await f.request('/.well-known/oauth-authorization-server')).json();
+  assert.deepEqual(oauth.code_challenge_methods_supported, ['S256']);
+});
+
+test('registration rejects attacker callbacks and authorization rejects wrong scope, audience and weak PKCE', async t => {
+  const f = await fixture(t);
+  for (const redirect of ['https://attacker.example/callback', 'https://chatgpt.com.attacker.example/connector_platform_oauth_redirect', CALLBACK + '?redirect=evil', 'http://chatgpt.com/connector_platform_oauth_redirect']) {
+    assert.equal((await f.registration(redirect)).response.status, 400);
+  }
+  for (const overrides of [{ resource: 'https://attacker.example/mcp' }, { code_challenge_method: 'plain' }, { scope: 'luckin:write' }, { redirect_uri: 'https://attacker.example/' }]) {
+    assert.equal((await f.authorization(overrides)).page.status, 400);
+  }
+  assert.equal(f.calls.length, 0);
+});
+
+test('owner login enforces same-origin form, CSRF cookie, password and one-time form', async t => {
+  const f = await fixture(t);
+  const a = await f.authorization();
+  assert.equal(a.page.status, 200);
+  assert.match(a.html, /不要填写瑞幸 Token/);
+  for (const headers of [{}, { origin: BASE }, { origin: 'https://attacker.example', cookie: a.cookie }]) {
+    const r = await f.request('/oauth/authorize', { headers, form: { ticket: a.ticket, owner_secret: ENV.OWNER_LOGIN_SECRET } });
+    assert.equal(r.status, 403);
+  }
+  const wrong = await f.request('/oauth/authorize', { headers: { origin: BASE, cookie: a.cookie }, form: { ticket: a.ticket, owner_secret: 'incorrect' } });
+  assert.equal(wrong.status, 403);
+  await f.approvedCode(a);
+  const replay = await f.request('/oauth/authorize', { headers: { origin: BASE, cookie: a.cookie }, form: { ticket: a.ticket, owner_secret: ENV.OWNER_LOGIN_SECRET } });
+  assert.equal(replay.status, 403);
+});
+
+test('authorization code cannot be replayed, exchanged with wrong PKCE or wrong resource', async t => {
+  const f = await fixture(t);
+  const a = await f.approvedCode();
+  assert.equal((await f.exchange(a)).status, 200);
+  assert.equal((await f.exchange(a)).status, 400);
+  const b = await f.approvedCode();
+  assert.equal((await f.exchange(b, { code_verifier: 'x'.repeat(43) })).status, 400);
+  const c = await f.approvedCode();
+  assert.equal((await f.exchange(c, { resource: 'https://attacker.example/mcp' })).status, 400);
+  const d = await f.approvedCode();
+  f.tick(121);
+  assert.equal((await f.exchange(d)).status, 400);
+});
+
+test('real upstream schemas are preserved while writes and unknown tools are hidden and blocked', async t => {
+  const f = await fixture(t);
+  const access = await f.login();
+  const session = await f.initialize(access);
+  assert.notEqual(session, 'mock-upstream-session');
+  const early = await f.rpc('tools/call', { name: 'queryShopList', arguments: {} }, access, session);
+  assert.equal(early.status, 400);
+  const listing = await f.rpc('tools/list', {}, access, session);
+  assert.equal(listing.status, 200);
+  const tools = (await listing.json()).result.tools;
+  assert.deepEqual(tools.map(t => t.name), ['queryShopList', 'previewOrder']);
+  assert.deepEqual(tools[0].inputSchema.required, ['longitude', 'latitude']);
+  assert.deepEqual(tools[0].securitySchemes, [{ type: 'oauth2', scopes: ['luckin:read'] }]);
+  for (const name of ['createOrder', 'cancelOrder', 'unknownFutureTool']) {
+    const r = await f.rpc('tools/call', { name, arguments: { userConfirmed: true } }, access, session);
+    assert.equal(r.status, 403);
+  }
+  assert.equal(f.calls.length, 2);
+  const args = { longitude: 120.123, latitude: 30.456, deptName: 'mock shop' };
+  const result = await f.rpc('tools/call', { name: 'queryShopList', arguments: args }, access, session);
+  assert.equal(result.status, 200);
+  const text = await result.text();
+  assert.ok(text.includes('mock-only'));
+  assert.ok(!text.includes(ENV.LUCKIN_TOKEN));
+  assert.ok(text.includes('[REDACTED]'));
+  assert.deepEqual(f.calls.at(-1).message.params.arguments, args);
+  assert.equal(f.calls.at(-1).headers['Mcp-Session-Id'], 'mock-upstream-session');
+  assert.notEqual(f.calls.at(-1).headers.Authorization, `Bearer ${access}`);
+});
+
+test('session IDs are isolated across separately authorized connections', async t => {
+  const f = await fixture(t);
+  const ownerA = await f.login();
+  const sid = await f.initialize(ownerA);
+  const ownerB = await f.login();
+  assert.equal((await f.rpc('tools/list', {}, ownerB, sid)).status, 404);
+  assert.equal(f.calls.length, 1);
+});
+
+test('fragmented SSE upstream tool discovery is supported', async t => {
+  const f = await fixture(t, { sse: true });
+  const access = await f.login();
+  const sid = await f.initialize(access);
+  const response = await f.rpc('tools/list', {}, access, sid);
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).result.tools.length, 2);
+});
+
+test('upstream authentication failure is reported without exposing secrets or substituting OAuth credentials', async t => {
+  const f = await fixture(t, { upstreamStatus: 401 });
+  const access = await f.login();
+  const response = await f.rpc('initialize', { protocolVersion: '2025-03-26' }, access);
+  assert.equal(response.status, 502);
+  assert.equal(response.headers.get('www-authenticate'), null);
+  const text = await response.text();
+  assert.match(text, /HTTP 401/);
+  for (const v of Object.values(ENV).slice(1)) assert.ok(!text.includes(v));
+  assert.equal(f.calls.length, 1);
+});
+
+test('missing or malformed protected configuration fails closed', async t => {
+  for (const env of [{ ADAPTER_SIGNING_KEY: '' }, { OWNER_LOGIN_SECRET: 'weak' }, { PUBLIC_BASE_URL: 'http://public.example' }]) {
+    const f = await fixture(t, { env });
+    assert.equal((await f.request('/.well-known/oauth-authorization-server')).status, 503);
+    assert.equal(f.calls.length, 0);
+  }
+  for (const value of ['', 'Bearer `REDACTED` ', 'bad token', 'token\nwith-newline']) {
+    const f = await fixture(t, { env: { LUCKIN_TOKEN: value } });
+    const access = await f.login();
+    const response = await f.rpc('initialize', { protocolVersion: '2025-03-26' }, access);
+    assert.equal(response.status, 503);
+    assert.equal(f.calls.length, 0);
+  }
+});
+
+test('tokens expire; forged tokens and invalid Origin are rejected', async t => {
+  const f = await fixture(t);
+  const access = await f.login();
+  const forged = access.slice(0, -1) + (access.endsWith('A') ? 'B' : 'A');
+  assert.equal((await f.rpc('initialize', {}, forged)).status, 401);
+  f.tick(86401);
+  assert.equal((await f.rpc('initialize', {}, access)).status, 401);
+  const origin = await f.request('/mcp', { headers: { origin: 'https://attacker.example' }, json: {} });
+  assert.equal(origin.status, 403);
+  assert.equal(f.calls.length, 0);
+});
