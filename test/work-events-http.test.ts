@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 import type { AddressInfo } from "node:net";
 
@@ -32,6 +33,51 @@ test("Work MCP discovery is authenticated and isolated from external ingress", a
     const music = await fetch(base + "/mcp/music", { method: "POST" });
     assert.equal(music.status, 404);
   } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test("Work OAuth accepts only the verified owner and registered client", async () => {
+  process.env.NODE_ENV = "test";
+  process.env.BRIDGE_ISOLATED_MODE = "true";
+  process.env.WORK_EVENTS_ENABLED = "true";
+  process.env.WORK_EVENTS_OWNER_EMAIL_SHA256 = createHash("sha256").update("owner@example.com").digest("hex");
+  process.env.WORK_EVENTS_OAUTH_CLIENT_ID = "work-client";
+  const originalFetch = globalThis.fetch;
+  let confirmed = true;
+  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input).endsWith("/auth/v1/user")) {
+      return Promise.resolve(Response.json({
+        id: "owner-1", email: "owner@example.com",
+        email_confirmed_at: confirmed ? "2026-10-27T00:00:00Z" : null,
+      }));
+    }
+    return originalFetch(input, init);
+  }) as typeof fetch;
+  const { createHttpServer } = await import("../src/server.js");
+  const server = createHttpServer();
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  const token = (clientId: string) => [
+    "header", Buffer.from(JSON.stringify({
+      iss: "https://kmligdmvjenjjlvrpqha.supabase.co/auth/v1",
+      sub: "owner-1", client_id: clientId,
+    })).toString("base64url"), "signature",
+  ].join(".");
+  const discover = (clientId: string) => originalFetch(base + "/mcp/work", {
+    method: "POST", headers: { Authorization: `Bearer ${token(clientId)}`, "content-type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "server/discover" }),
+  });
+  try {
+    assert.equal((await discover("other-client")).status, 401);
+    confirmed = false;
+    assert.equal((await discover("work-client")).status, 401);
+    confirmed = true;
+    assert.equal((await discover("work-client")).status, 200);
+  } finally {
+    globalThis.fetch = originalFetch;
+    delete process.env.WORK_EVENTS_OWNER_EMAIL_SHA256;
+    delete process.env.WORK_EVENTS_OAUTH_CLIENT_ID;
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 });
