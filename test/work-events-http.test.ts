@@ -10,6 +10,7 @@ test("Work MCP discovery is authenticated and isolated from external ingress", a
   process.env.WORK_EVENTS_STORE_URL = "https://example.supabase.co/functions/v1/work-store-proxy";
   process.env.WORK_EVENTS_STORE_TOKEN = "local-only-test-key";
   process.env.WORK_EVENTS_MCP_TOKEN = "mcp-local-only-test";
+  process.env.WORK_EVENTS_LINK_TOKEN = "a".repeat(43);
   process.env.WORK_EVENTS_INGEST_TOKEN = "ingress-local-only-test";
   const { createHttpServer } = await import("../src/server.js");
   const server = createHttpServer();
@@ -25,6 +26,15 @@ test("Work MCP discovery is authenticated and isolated from external ingress", a
     assert.deepEqual(result.result.supportedVersions, ["2026-07-28"]);
     assert.ok(result.result.capabilities.events);
 
+    const linkDiscover = (segment: string) => fetch(base + "/mcp/work-link/" + segment, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "server/discover" }),
+    });
+    assert.equal((await linkDiscover("b".repeat(43))).status, 404);
+    const linked = await linkDiscover("a".repeat(43));
+    assert.equal(linked.status, 200);
+    assert.ok((await linked.json()).result.capabilities.events);
+
     const consent = await fetch(base + "/oauth/consent?authorization_id=test-request");
     assert.equal(consent.headers.get("cache-control"), "no-store");
     assert.match(await consent.text(), /\/oauth\/consent\.js\?v=2/);
@@ -34,9 +44,15 @@ test("Work MCP discovery is authenticated and isolated from external ingress", a
       body: JSON.stringify({ eventId: "e", source: "pwa.chat", text: "hello" }),
     });
     assert.equal(ingress.status, 401);
+    const linkedIngress = await fetch(base + "/work/events", {
+      method: "POST", headers: { Authorization: `Bearer ${"a".repeat(43)}`, "content-type": "application/json" },
+      body: JSON.stringify({ eventId: "e2", source: "pwa.chat", text: "hello" }),
+    });
+    assert.equal(linkedIngress.status, 401);
     const music = await fetch(base + "/mcp/music", { method: "POST" });
     assert.equal(music.status, 404);
   } finally {
+    delete process.env.WORK_EVENTS_LINK_TOKEN;
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 });
