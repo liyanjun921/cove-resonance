@@ -138,18 +138,19 @@ async function callbackPost(url: string, secret: string, id: string, subId: stri
 
 /** PostgREST tables are RLS-denied to public clients; only the server role accesses them. */
 class Store {
-  private readonly base = process.env.WORK_EVENTS_SUPABASE_URL?.replace(/\/$/, "");
-  private readonly key = process.env.WORK_EVENTS_SERVICE_ROLE_KEY;
+  private readonly base = process.env.WORK_EVENTS_STORE_URL?.replace(/\/$/, "");
+  private readonly key = process.env.WORK_EVENTS_STORE_TOKEN;
 
   get configured(): boolean { return Boolean(this.base && this.key); }
 
   private async call(path: string, init: RequestInit = {}): Promise<unknown> {
     if (!this.configured) throw new Error("work_event_store_unconfigured");
-    const response = await fetch(this.base + "/rest/v1/" + path, {
-      ...init, headers: {
-        apikey: this.key!, Authorization: `Bearer ${this.key}`,
-        "content-type": "application/json", ...init.headers,
-      }, signal: AbortSignal.timeout(10_000),
+    const inputHeaders = new Headers(init.headers);
+    const response = await fetch(this.base!, {
+      method: "POST", headers: { Authorization: `Bearer ${this.key}`, "content-type": "application/json" },
+      body: JSON.stringify({ path, method: init.method ?? "GET", prefer: inputHeaders.get("prefer"),
+        body: init.body ? JSON.parse(String(init.body)) : undefined }),
+      signal: AbortSignal.timeout(10_000),
     });
     if (!response.ok) throw new Error(`work_event_store_${response.status}`);
     const body = await response.text();

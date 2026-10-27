@@ -6,8 +6,8 @@ test("Work MCP discovery is authenticated and isolated from external ingress", a
   process.env.NODE_ENV = "test";
   process.env.BRIDGE_ISOLATED_MODE = "true";
   process.env.WORK_EVENTS_ENABLED = "true";
-  process.env.WORK_EVENTS_SUPABASE_URL = "https://example.supabase.co";
-  process.env.WORK_EVENTS_SERVICE_ROLE_KEY = "local-only-test-key";
+  process.env.WORK_EVENTS_STORE_URL = "https://example.supabase.co/functions/v1/work-store-proxy";
+  process.env.WORK_EVENTS_STORE_TOKEN = "local-only-test-key";
   process.env.WORK_EVENTS_MCP_TOKEN = "mcp-local-only-test";
   process.env.BRIDGE_INGEST_TOKEN = "ingress-local-only-test";
   const { createHttpServer } = await import("../src/server.js");
