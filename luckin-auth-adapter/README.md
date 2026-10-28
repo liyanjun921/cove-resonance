@@ -34,7 +34,7 @@ ChatGPT → 本服务 OAuth 授权 → 服务端加入瑞幸 Bearer → 瑞幸�
 - 仅开放 queryShopList、searchProductForMcp、switchProduct、queryProductDetailInfo、previewOrder、queryOrderDetailInfo 中实际存在的工具。
 - 过滤并阻止 createOrder、cancelOrder 和未知工具；阻止绕过列表直接调用。
 - 没有请求正文、授权头、支付数据、地址或身份信息日志；响应额外去除服务端 Secret 原文。
-- OAuth 调试日志仅记录“签发授权码”与“签发访问凭据”两个阶段及时间，不记录授权码、凭据、口令、state 或客户端标识。
+- 连接诊断记录固定路由、请求方法分类、状态码、固定错误原因及 RPC 方法分类，用于区分请求未到达、登录拒绝、换码失败和 MCP 初始化失败；Origin 只记录同源/ChatGPT/不透明/缺失/其他分类。日志不包含完整 URL、查询串、请求头值、正文、授权码、凭据、口令、state、客户端标识或商品/订单参数。`/health` 返回诊断版本以核对部署。
 - 不存在匿名使用瑞幸 Token 的路径；公开端点仅为健康检查、说明和 OAuth 发现/登录。
 
 ## 隔离部署

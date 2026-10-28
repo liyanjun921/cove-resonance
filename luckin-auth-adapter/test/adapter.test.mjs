@@ -17,6 +17,7 @@ const sha = s => createHash('sha256').update(s).digest('base64url');
 
 async function fixture(t, options = {}) {
   const calls = [];
+  const diagnostics = [];
   const mockFetch = async (url, init) => {
     if (init.method === 'DELETE') {
       calls.push({ url, headers: init.headers, message: { method: 'DELETE' } });
@@ -51,7 +52,7 @@ async function fixture(t, options = {}) {
   };
   let clock = 1900000000;
   const env = { ...ENV, ...options.env };
-  const adapter = createAdapter(env, { fetch: mockFetch, now: () => clock });
+  const adapter = createAdapter(env, { fetch: mockFetch, now: () => clock, diagnostic: event => diagnostics.push(event) });
   const server = http.createServer(adapter.handle);
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   t.after(() => new Promise(resolve => { server.closeAllConnections(); server.close(resolve); }));
@@ -125,8 +126,32 @@ async function fixture(t, options = {}) {
     assert.deepEqual(calls[0].message.params.capabilities, {});
     return response.headers.get('mcp-session-id');
   }
-  return { request, rawRequest, rpc, registration, authorization, approvedCode, exchange, login, initialize, calls, verifyUpstream: adapter.verifyUpstream, tick: seconds => { clock += seconds; } };
+  return { request, rawRequest, rpc, registration, authorization, approvedCode, exchange, login, initialize, calls, diagnostics, verifyUpstream: adapter.verifyUpstream, tick: seconds => { clock += seconds; } };
 }
+
+test('connection diagnostics locate failed and successful stages without recording any credential or request data', async t => {
+  const f = await fixture(t);
+  const a = await f.authorization({ state: 'private-state-that-must-not-be-logged' });
+  const wrong = await f.request('/oauth/authorize?private=do-not-log-this-query', {
+    headers: { origin: BASE, cookie: a.cookie, 'x-private': 'do-not-log-this-header' },
+    form: { ticket: a.ticket, owner_secret: ENV.OWNER_LOGIN_SECRET + '-wrong' },
+  });
+  assert.equal(wrong.status, 403);
+  assert.ok(f.diagnostics.some(e => e.route === '/oauth/authorize' && e.stage === 'request_finished' && e.reason === 'owner_secret_mismatch'));
+  const access = await f.login();
+  const session = await f.initialize(access);
+  assert.equal((await f.rpc('tools/list', {}, access, session)).status, 200);
+  assert.equal((await f.rpc('tools/call', { name: 'queryShopList', arguments: { private: 'do-not-log-this-argument' } }, access, session)).status, 200);
+  assert.ok(f.diagnostics.some(e => e.route === '/oauth/token' && e.status === 200));
+  assert.ok(f.diagnostics.some(e => e.route === '/mcp' && e.rpc === 'tools/list' && e.status === 200));
+  const logged = JSON.stringify(f.diagnostics);
+  for (const secret of [a.ticket, a.cookie, a.clientId, a.verifier, access, ...Object.values(ENV), 'private-state-that-must-not-be-logged', 'do-not-log-this-query', 'do-not-log-this-header', 'do-not-log-this-argument']) {
+    assert.ok(!logged.includes(secret), 'diagnostics must not contain request or credential data');
+  }
+  for (const event of f.diagnostics) {
+    assert.ok(Object.keys(event).every(k => ['version', 'at', 'route', 'method', 'stage', 'origin', 'status', 'error', 'reason', 'rpc'].includes(k)));
+  }
+});
 
 test('anonymous MCP access fails before upstream; discovery advertises PKCE and the exact resource', async t => {
   const f = await fixture(t);

@@ -4,6 +4,9 @@ import { pathToFileURL } from 'node:url';
 
 const OFFICIAL_URL = 'https://gwmcp.lkcoffee.com/order/user/mcp';
 const SCOPE = 'luckin:read';
+const DIAGNOSTIC_VERSION = '2026-10-28.3';
+const DIAGNOSTIC_ROUTES = new Set(['/oauth/register', '/oauth/authorize', '/oauth/token', '/mcp']);
+const DIAGNOSTIC_METHODS = new Set(['initialize', 'notifications/initialized', 'tools/list', 'tools/call', 'ping']);
 const SAFE_TOOLS = new Set([
   'queryShopList', 'searchProductForMcp', 'switchProduct',
   'queryProductDetailInfo', 'previewOrder', 'queryOrderDetailInfo',
@@ -16,10 +19,10 @@ const equal = (a, b) => timingSafeEqual(Buffer.from(hash(String(a))), Buffer.fro
 const escape = value => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
 class Failure extends Error {
-  constructor(status, code, message) { super(message); this.status = status; this.code = code; }
+  constructor(status, code, message, reason = code) { super(message); this.status = status; this.code = code; this.reason = reason; }
 }
-function requireThat(ok, status, code, message) {
-  if (!ok) throw new Failure(status, code, message);
+function requireThat(ok, status, code, message, reason) {
+  if (!ok) throw new Failure(status, code, message, reason);
 }
 
 export function createAdapter(env = process.env, injected = {}) {
@@ -37,6 +40,7 @@ export function createAdapter(env = process.env, injected = {}) {
   const tokenReady = !!token && !/[\s`"\\<>]/.test(token) && !/REDACTED|YOUR_TOKEN|REPLACE_ME/i.test(token);
   const authReady = validBase && key.length >= 32 && ownerSecret.length >= 32 && key !== ownerSecret;
   const fetchUpstream = injected.fetch || fetch;
+  const diagnostic = injected.diagnostic || (event => console.info('LUCKIN_CONNECTION_STAGE', JSON.stringify(event)));
   const now = injected.now || (() => Math.floor(Date.now() / 1000));
   const boot = random();
   const usedForms = new Map();
@@ -237,16 +241,30 @@ export function createAdapter(env = process.env, injected = {}) {
 
   async function handle(req, res) {
     let message;
+    let failure;
     try {
       clean();
       const url = new URL(req.url, validBase ? base : 'https://unconfigured.invalid');
       const origin = req.headers.origin;
+      // Fixed route/method classifications only: never log URLs, query strings,
+      // headers, credentials, RPC parameters or provider response bodies.
+      if (DIAGNOSTIC_ROUTES.has(url.pathname)) {
+        const method = ['GET', 'POST', 'DELETE', 'OPTIONS'].includes(req.method) ? req.method : 'other';
+        const route = url.pathname;
+        const originClass = !origin ? 'missing' : origin === base ? 'self' : origin === 'https://chatgpt.com' ? 'chatgpt' : origin === 'null' ? 'opaque' : 'other';
+        const report = extra => diagnostic({ version: DIAGNOSTIC_VERSION, at: new Date(now() * 1000).toISOString(), route, method, ...extra });
+        report({ stage: 'request_received', origin: originClass });
+        res.once('finish', () => report({ stage: 'request_finished', status: res.statusCode,
+          ...(failure ? { error: failure.code, reason: failure.reason } : {}),
+          ...(message ? { rpc: DIAGNOSTIC_METHODS.has(message.method) ? message.method : 'other' } : {}),
+        }));
+      }
       // OAuth authorization pages and public discovery must be reachable by
       // cross-site browser navigations, including opaque redirect origins.
       // MCP transport and mutation endpoints retain their Origin restriction.
       const publicNavigation = req.method === 'GET' && url.pathname !== '/mcp';
       requireThat(publicNavigation || !origin || [base, 'https://chatgpt.com'].includes(origin), 403, 'invalid_origin', 'Origin not allowed.');
-      if (req.method === 'GET' && url.pathname === '/health') return json(res, 200, { status: 'ok', mode: 'read-only', configured: authReady && tokenReady });
+      if (req.method === 'GET' && url.pathname === '/health') return json(res, 200, { status: 'ok', mode: 'read-only', configured: authReady && tokenReady, diagnosticVersion: DIAGNOSTIC_VERSION });
       if (req.method === 'GET' && url.pathname === '/') return html(res, '谢临川 · 瑞幸连接', `<h1>谢临川 · 瑞幸连接</h1><p>${authReady && tokenReady ? '配置已填写，等待 ChatGPT OAuth 连接及真实接口验证。' : '等待管理员在 Render 的 Environment 页面填写凭据。'}</p><p>当前阶段只开放查询与订单预览。创建和取消订单均已禁用。</p><small>此页面不会索取瑞幸 Token，也不会创建订单。</small>`);
       requireThat(authReady, 503, 'setup_required', 'Configure the adapter URL and two independent secrets in Render first.');
       if (req.method === 'GET' && ['/.well-known/oauth-protected-resource', '/.well-known/oauth-protected-resource/mcp'].includes(url.pathname)) {
@@ -279,8 +297,8 @@ export function createAdapter(env = process.env, injected = {}) {
         const p = await body(req, 'application/x-www-form-urlencoded');
         let form;
         try { form = unseal(p.ticket, 'authorization_form'); }
-        catch { throw new Failure(403, 'invalid_request', '授权页面已失效，请返回 ChatGPT 重新连接。'); }
-        requireThat(typeof form.nonce === 'string' && !usedForms.has(form.nonce), 403, 'invalid_request', '这次授权已经提交，请返回 ChatGPT 查看连接状态。');
+        catch { throw new Failure(403, 'invalid_request', '授权页面已失效，请返回 ChatGPT 重新连接。', 'authorization_form_invalid_or_expired'); }
+        requireThat(typeof form.nonce === 'string' && !usedForms.has(form.nonce), 403, 'invalid_request', '这次授权已经提交，请返回 ChatGPT 查看连接状态。', 'authorization_form_replayed');
         const cookieName = `xlc_oauth_csrf_${form.nonce}`;
         const cookie = cookies(req)[cookieName];
         const cookieMatches = !!cookie && equal(form.csrf, hash(cookie));
@@ -289,8 +307,8 @@ export function createAdapter(env = process.env, injected = {}) {
         // ticket without a cookie. Origin, Fetch Metadata, the owner password,
         // expiration and one-time nonce are still checked independently.
         const trustedNavigation = !cookie && req.headers['sec-fetch-site'] === 'same-origin' && req.headers['sec-fetch-mode'] === 'navigate';
-        requireThat(cookieMatches || trustedNavigation, 403, 'invalid_request', '浏览器未能验证这次授权页面，请从 ChatGPT 在新标签页重新打开授权。');
-        requireThat(equal(p.owner_secret || '', ownerSecret), 403, 'access_denied', '连接口令不正确。');
+        requireThat(cookieMatches || trustedNavigation, 403, 'invalid_request', '浏览器未能验证这次授权页面，请从 ChatGPT 在新标签页重新打开授权。', 'csrf_validation_failed');
+        requireThat(equal(p.owner_secret || '', ownerSecret), 403, 'access_denied', '连接口令不正确。', 'owner_secret_mismatch');
         usedForms.set(form.nonce, { exp: form.exp });
         const code = random();
         codes.set(code, { ...form.request, exp: now() + 120 });
@@ -308,10 +326,10 @@ export function createAdapter(env = process.env, injected = {}) {
         client(p.client_id);
         requireThat(p.grant_type === 'authorization_code', 400, 'unsupported_grant_type', 'Only authorization_code is supported.');
         const c = codes.get(p.code);
-        requireThat(c && c.exp > now(), 400, 'invalid_grant', 'Expired or used authorization code.');
+        requireThat(c && c.exp > now(), 400, 'invalid_grant', 'Expired or used authorization code.', 'code_expired_or_unknown');
         codes.delete(p.code);
-        requireThat(c.client_id === p.client_id && c.redirect_uri === p.redirect_uri && p.resource === resource, 400, 'invalid_grant', 'Authorization code binding mismatch.');
-        requireThat(/^[A-Za-z0-9._~-]{43,128}$/.test(p.code_verifier || '') && equal(hash(p.code_verifier), c.code_challenge), 400, 'invalid_grant', 'Invalid PKCE verifier.');
+        requireThat(c.client_id === p.client_id && c.redirect_uri === p.redirect_uri && p.resource === resource, 400, 'invalid_grant', 'Authorization code binding mismatch.', 'code_binding_mismatch');
+        requireThat(/^[A-Za-z0-9._~-]{43,128}$/.test(p.code_verifier || '') && equal(hash(p.code_verifier), c.code_challenge), 400, 'invalid_grant', 'Invalid PKCE verifier.', 'pkce_mismatch');
         const ttl = 86400;
         const access = seal('access', { aud: resource, sub: 'owner', scope: SCOPE, client_id: p.client_id, jti: random(), iat: now(), exp: now() + ttl });
         console.info('LUCKIN_OAUTH_STAGE', JSON.stringify({ stage: 'access_token_issued', at: new Date(now() * 1000).toISOString() }));
@@ -370,6 +388,7 @@ export function createAdapter(env = process.env, injected = {}) {
       return json(res, 200, result.message);
     } catch (error) {
       const e = error instanceof Failure ? error : new Failure(500, 'internal_error', 'Unexpected adapter error.');
+      failure = e;
       const headers = e.status === 401 ? { 'WWW-Authenticate': `Bearer resource_metadata="${base}/.well-known/oauth-protected-resource/mcp", error="invalid_token"` } : {};
       if (message && Object.hasOwn(message, 'id')) return json(res, e.status, { jsonrpc: '2.0', id: message.id, error: { code: -32000, message: e.message, data: { adapterCode: e.code } } }, headers);
       return json(res, e.status, { error: e.code, error_description: e.message }, headers);
