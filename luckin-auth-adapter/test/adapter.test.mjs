@@ -550,6 +550,126 @@ test('a lost create response is never retried and blocks a fresh identical previ
   assert.equal(f.calls.filter(c => c.message.params?.name === 'createOrder').length, 1);
 });
 
+const FORM_CAPS = { elicitation: { form: {} }, extensions: { 'openai/elicitation': { form: {} } } };
+async function modernRpc(f, access, method, params = {}, caps = FORM_CAPS, extra = {}) {
+  return f.request('/mcp', { headers: { authorization: `Bearer ${access}`, accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2026-07-28' }, json: {
+    jsonrpc: '2.0', id: 901, method, params: { ...params, _meta: {
+      'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+      'io.modelcontextprotocol/clientInfo': { name: 'mock-modern-client', version: '1.0' },
+      'io.modelcontextprotocol/clientCapabilities': caps,
+      ...extra,
+    } },
+  } });
+}
+async function modernDraft(f, access) {
+  const r = await modernRpc(f, access, 'tools/call', { name: 'previewOrder', arguments: DRAFT_ARGS });
+  assert.equal(r.status, 200);
+  const result = (await r.json()).result;
+  assert.equal(result.resultType, 'complete');
+  return JSON.parse(result.content.at(-1).text).adapterOrderPreview;
+}
+async function modernBegin(f, access, receipt) {
+  const r = await modernRpc(f, access, 'tools/call', { name: 'createOrder', arguments: { previewReceipt: receipt } });
+  assert.equal(r.status, 200);
+  const result = (await r.json()).result;
+  assert.equal(result.resultType, 'input_required');
+  const [key] = Object.keys(result.inputRequests);
+  assert.equal(result.inputRequests[key].method, 'elicitation/create');
+  assert.deepEqual(result.inputRequests[key].params.requestedSchema.properties, {});
+  assert.equal(result.inputRequests[key].params._meta['openai/elicitation'].requestedSchema.properties.confirmed.default, false);
+  return { ...result, key };
+}
+const modernResume = (f, access, receipt, pending, answer, overrides = {}) => modernRpc(f, access, 'tools/call', {
+  name: 'createOrder', arguments: { previewReceipt: receipt }, requestState: pending.requestState, inputResponses: { [pending.key]: answer }, ...overrides,
+});
+
+test('modern discovery is authenticated, stateless and validates protocol metadata', async t => {
+  const f = await fixture(t, { orderReady: true });
+  const access = await f.login();
+  const r = await modernRpc(f, access, 'server/discover');
+  assert.equal(r.status, 200);
+  const result = (await r.json()).result;
+  assert.equal(result.resultType, 'complete');
+  assert.deepEqual(result.supportedVersions, ['2026-07-28']);
+  assert.equal(f.calls.length, 0);
+  assert.equal((await modernRpc(f, 'not-a-credential', 'server/discover')).status, 401);
+  const unsupported = await modernRpc(f, access, 'server/discover', {}, {}, { 'io.modelcontextprotocol/protocolVersion': '1900-01-01' });
+  assert.equal(unsupported.status, 400);
+  assert.equal((await unsupported.json()).error.code, -32022);
+  const missing = await modernRpc(f, access, 'server/discover', {}, {}, { 'io.modelcontextprotocol/clientInfo': null });
+  assert.equal(missing.status, 400);
+});
+
+test('modern cached-schema queries initialize the merchant internally and expose per-request confirmation support', async t => {
+  const f = await fixture(t, { orderReady: true });
+  const access = await f.login();
+  const p = await modernDraft(f, access);
+  assert.equal(p.confirmationSupported, true);
+  assert.equal(p.orderScopeGranted, false);
+  assert.deepEqual(f.calls.map(c => c.message.method), ['initialize', 'notifications/initialized', 'tools/list', 'tools/call']);
+  const r = await modernRpc(f, access, 'tools/list');
+  assert.equal((await r.json()).result.tools.find(t => t.name === 'createOrder').annotations.destructiveHint, true);
+  const create = await modernRpc(f, access, 'tools/call', { name: 'createOrder', arguments: { previewReceipt: p.previewReceipt } });
+  assert.equal(create.status, 401);
+  assert.match(create.headers.get('www-authenticate'), /insufficient_scope/);
+  const unsupported = await modernRpc(f, access, 'tools/call', { name: 'cancelOrder', arguments: {} });
+  assert.equal(unsupported.status, 403);
+  for (const call of f.calls) assert.equal(call.message.params?._meta, undefined);
+});
+
+test('modern MRTR requires signed state and native confirmation; accepting submits once and replay fails', async t => {
+  const f = await fixture(t, { orderReady: true });
+  const access = await f.login(ORDER_SCOPE);
+  const p = await modernDraft(f, access);
+  const pending = await modernBegin(f, access, p.previewReceipt);
+  assert.equal(f.calls.filter(c => c.message.params?.name === 'createOrder').length, 0);
+  const forged = await modernResume(f, access, p.previewReceipt, pending, { action: 'accept', content: { confirmed: true } }, { requestState: pending.requestState + 'x' });
+  assert.equal(forged.status, 409);
+  const otherAccess = await f.login(ORDER_SCOPE);
+  const stolen = await modernResume(f, otherAccess, p.previewReceipt, pending, { action: 'accept', content: { confirmed: true } });
+  assert.equal(stolen.status, 403);
+  const empty = await modernResume(f, access, p.previewReceipt, pending, null, { inputResponses: {} });
+  assert.equal(empty.status, 400);
+  const r = await modernResume(f, access, p.previewReceipt, pending, { action: 'accept', content: { confirmed: true } });
+  assert.equal(r.status, 200);
+  const result = (await r.json()).result;
+  assert.equal(result.resultType, 'complete');
+  assert.equal(JSON.parse(result.content[0].text).data.orderIdStr, '7639308439653908490');
+  assert.equal((await modernResume(f, access, p.previewReceipt, pending, { action: 'accept', content: { confirmed: true } })).status, 403);
+  assert.equal(f.calls.filter(c => c.message.params?.name === 'createOrder').length, 1);
+  for (const c of f.calls) {
+    assert.equal(c.message.params?.requestState, undefined);
+    assert.equal(c.message.params?.inputResponses, undefined);
+    assert.equal(c.message.params?._meta, undefined);
+  }
+});
+
+test('modern declined or unchecked native confirmations complete without creating an order', async t => {
+  for (const answer of [{ action: 'decline' }, { action: 'cancel' }, { action: 'accept', content: {} }, { action: 'accept', content: { confirmed: false } }]) {
+    const f = await fixture(t, { orderReady: true });
+    const access = await f.login(ORDER_SCOPE);
+    const p = await modernDraft(f, access);
+    const pending = await modernBegin(f, access, p.previewReceipt);
+    const r = await modernResume(f, access, p.previewReceipt, pending, answer);
+    assert.equal(r.status, 200);
+    assert.equal((await r.json()).result.structuredContent.orderCreated, false);
+    assert.equal(f.calls.filter(c => c.message.params?.name === 'createOrder').length, 0);
+  }
+});
+
+test('modern creation refuses missing native capability and a price changed after confirmation', async t => {
+  const f = await fixture(t, { orderReady: true, previewTotals: [14.94, 14.94, 15.94] });
+  const access = await f.login(ORDER_SCOPE);
+  const p = await modernDraft(f, access);
+  const noCapability = await modernRpc(f, access, 'tools/call', { name: 'createOrder', arguments: { previewReceipt: p.previewReceipt } }, {});
+  assert.equal(noCapability.status, 409);
+  const pending = await modernBegin(f, access, p.previewReceipt);
+  const r = await modernResume(f, access, p.previewReceipt, pending, { action: 'accept', content: { confirmed: true } });
+  assert.equal(r.status, 409);
+  assert.equal((await r.json()).error.data.adapterCode, 'preview_changed');
+  assert.equal(f.calls.filter(c => c.message.params?.name === 'createOrder').length, 0);
+});
+
 test('session IDs are isolated across separately authorized connections', async t => {
   const f = await fixture(t);
   const ownerA = await f.login();

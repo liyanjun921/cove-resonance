@@ -3,6 +3,7 @@
 !package-lock.json
 !server.mjs
 !order-guard.mjs
+!modern-mcp.mjs
 !test
 !test/**
 !Dockerfile

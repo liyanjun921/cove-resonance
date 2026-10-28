@@ -2,13 +2,15 @@ import http from 'node:http';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { createOrderGuard } from './order-guard.mjs';
+import { createModernMcp } from './modern-mcp.mjs';
 
 const OFFICIAL_URL = 'https://gwmcp.lkcoffee.com/order/user/mcp';
 const SCOPE = 'luckin:read';
 const ORDER_SCOPE = 'luckin:order';
-const DIAGNOSTIC_VERSION = '2026-10-28.5';
+const DIAGNOSTIC_VERSION = '2026-10-28.6';
 const DIAGNOSTIC_ROUTES = new Set(['/oauth/register', '/oauth/authorize', '/oauth/token', '/mcp']);
-const DIAGNOSTIC_METHODS = new Set(['initialize', 'notifications/initialized', 'tools/list', 'tools/call', 'ping']);
+const DIAGNOSTIC_METHODS = new Set(['server/discover', 'initialize', 'notifications/initialized', 'tools/list', 'tools/call', 'ping']);
+const INSTRUCTIONS = '先查询真实门店、商品和规格，再 previewOrder。创建订单前必须展示准确门店、规格、数量、优惠和金额并等待用户明确确认；createOrder 还要求独立下单权限和客户端原生确认表单。预览凭据十分钟有效；超时禁止重试，先核对瑞幸订单。用户自己付款。取消订单未开放。不得编造查询、支付或订单状态。';
 const SAFE_TOOLS = new Set([
   'queryShopList', 'searchProductForMcp', 'switchProduct',
   'queryProductDetailInfo', 'previewOrder', 'queryOrderDetailInfo',
@@ -51,6 +53,7 @@ export function createAdapter(env = process.env, injected = {}) {
   const buckets = new Map();
   const pendingConfirmations = new Map();
   const orderGuard = createOrderGuard({ seal, unseal, hash, random, now, boot, providerTag: hash(token), upstream, Failure });
+  const modern = createModernMcp({ upstream, discoveredTools, ensureDiscovered, orderGuard, json, seal, unseal, hash, random, now, boot, Failure, safeTools: SAFE_TOOLS, orderScope: ORDER_SCOPE, instructions: INSTRUCTIONS });
 
   function seal(kind, payload) {
     const data = Buffer.from(JSON.stringify({ ...payload, kind, iss: base })).toString('base64url');
@@ -430,6 +433,7 @@ export function createAdapter(env = process.env, injected = {}) {
       const hasId = Object.hasOwn(message, 'id');
       requireThat(!hasId || typeof message.id === 'string' || (typeof message.id === 'number' && Number.isFinite(message.id)), 400, 'invalid_request', 'Invalid JSON-RPC ID.');
       requireThat(hasId || message.method === 'notifications/initialized', 400, 'invalid_request', 'Only initialized notifications are supported.');
+      if (modern.accepts(message, req)) return await modern.handle(message, req, res, principal);
       if (message.method === 'initialize') {
         requireThat(!req.headers['mcp-session-id'] && sessions.size < 100, 400, 'invalid_request', 'Start a fresh MCP session.');
         requireThat(message.params && typeof message.params.protocolVersion === 'string', 400, 'invalid_request', 'Missing MCP protocol version.');
@@ -444,7 +448,7 @@ export function createAdapter(env = process.env, injected = {}) {
         sessions.set(sid, { owner: principal.jti, upstreamId: result.upstreamId, protocol: result.message.result.protocolVersion, tools: new Set(), exp: now() + 28800, boot,
           formMethod: extensionForm ? 'openai/elicitation/create' : standardForm ? 'elicitation/create' : null });
         result.message.result.capabilities = { tools: {} };
-        result.message.result.instructions = '先查询真实门店、商品和规格，再 previewOrder。创建订单前必须展示准确门店、规格、数量、优惠和金额并等待用户明确确认；createOrder 还要求独立下单权限和客户端原生确认表单。预览凭据十分钟有效；超时禁止重试，先核对瑞幸订单。用户自己付款。取消订单未开放。不得编造查询、支付或订单状态。';
+        result.message.result.instructions = INSTRUCTIONS;
         return json(res, 200, result.message, { 'Mcp-Session-Id': sid });
       }
       const sid = req.headers['mcp-session-id'];
@@ -475,7 +479,7 @@ export function createAdapter(env = process.env, injected = {}) {
       const e = error instanceof Failure ? error : new Failure(500, 'internal_error', 'Unexpected adapter error.');
       failure = e;
       const headers = e.status === 401 ? { 'WWW-Authenticate': `Bearer resource_metadata="${base}/.well-known/oauth-protected-resource/mcp", error="${e.code === 'order_scope_required' ? 'insufficient_scope' : 'invalid_token'}"${e.code === 'order_scope_required' ? ', scope="luckin:read luckin:order"' : ''}` } : {};
-      if (message && Object.hasOwn(message, 'id')) return json(res, e.status, { jsonrpc: '2.0', id: message.id, error: { code: -32000, message: e.message, data: { adapterCode: e.code } } }, headers);
+      if (message && Object.hasOwn(message, 'id')) return json(res, e.status, { jsonrpc: '2.0', id: message.id, error: { code: modern.accepts(message, req) ? (e.code === 'protocol_mismatch' ? -32020 : 1001) : -32000, message: e.message, data: { adapterCode: e.code } } }, headers);
       return json(res, e.status, { error: e.code, error_description: e.message }, headers);
     }
   }
