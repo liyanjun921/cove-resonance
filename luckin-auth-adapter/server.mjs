@@ -39,7 +39,7 @@ export function createAdapter(env = process.env, injected = {}) {
   const fetchUpstream = injected.fetch || fetch;
   const now = injected.now || (() => Math.floor(Date.now() / 1000));
   const boot = random();
-  const forms = new Map();
+  const usedForms = new Map();
   const codes = new Map();
   const sessions = new Map();
   const buckets = new Map();
@@ -66,7 +66,7 @@ export function createAdapter(env = process.env, injected = {}) {
     requireThat(b.count <= max, 429, 'rate_limited', 'Please try again later.');
   }
   function clean() {
-    for (const map of [forms, codes, sessions]) {
+    for (const map of [usedForms, codes, sessions]) {
       for (const [id, record] of map) if (record.exp <= now()) map.delete(id);
     }
     for (const [id, record] of buckets) if (record.until <= now()) buckets.delete(id);
@@ -265,26 +265,38 @@ export function createAdapter(env = process.env, injected = {}) {
         limit('authorize', 100, 600);
         for (const k of url.searchParams.keys()) requireThat(url.searchParams.getAll(k).length === 1, 400, 'invalid_request', 'Duplicate parameter.');
         const p = authRequest(Object.fromEntries(url.searchParams));
-        requireThat(forms.size < 100, 429, 'rate_limited', 'Too many pending authorization requests.');
-        const csrf = random(), ticket = random();
-        forms.set(ticket, { request: p, csrf: hash(csrf), exp: now() + 600 });
-        return html(res, '授权谢临川查询瑞幸', `<h1>连接你的瑞幸咖啡</h1><p>授权 ChatGPT 查询门店、商品、订单，并预览价格。</p><p><strong>本阶段不能创建或取消订单。</strong></p><form method="post" action="/oauth/authorize"><input type="hidden" name="ticket" value="${ticket}"><label>连接口令<input type="password" name="owner_secret" required autocomplete="current-password" minlength="32" maxlength="256"></label><small>仅填写此服务的 OWNER_LOGIN_SECRET。不要填写瑞幸 Token、短信验证码或支付密码。</small><button type="submit">确认授权查询</button></form>`, { 'Set-Cookie': `xlc_oauth_csrf=${csrf}; Path=/oauth; HttpOnly; Secure; SameSite=Lax; Max-Age=600` });
+        const csrf = random(), nonce = random();
+        // Signed form state survives a process restart. Each flow has its own
+        // host-only cookie so concurrent authorization tabs do not overwrite it.
+        const ticket = seal('authorization_form', { request: p, csrf: hash(csrf), nonce, exp: now() + 600 });
+        return html(res, '授权谢临川查询瑞幸', `<h1>连接你的瑞幸咖啡</h1><p>授权 ChatGPT 查询门店、商品、订单，并预览价格。</p><p><strong>本阶段不能创建或取消订单。</strong></p><form method="post" action="/oauth/authorize"><input type="hidden" name="ticket" value="${ticket}"><label>连接口令<input type="password" name="owner_secret" required autocomplete="current-password" minlength="32" maxlength="256"></label><small>仅填写此服务的 OWNER_LOGIN_SECRET。不要填写瑞幸 Token、短信验证码或支付密码。</small><button type="submit">确认授权查询</button></form>`, { 'Set-Cookie': `xlc_oauth_csrf_${nonce}=${csrf}; Path=/oauth; HttpOnly; Secure; SameSite=Lax; Max-Age=600` });
       }
       if (req.method === 'POST' && url.pathname === '/oauth/authorize') {
         requireThat(origin === base, 403, 'invalid_origin', 'Authorization must be submitted from this site.');
         limit('owner-login', 15, 600);
         const p = await body(req, 'application/x-www-form-urlencoded');
-        const form = forms.get(p.ticket);
-        requireThat(form && form.exp > now() && equal(form.csrf, hash(cookies(req).xlc_oauth_csrf || '')), 403, 'invalid_request', 'Authorization form expired. Reconnect from ChatGPT.');
+        let form;
+        try { form = unseal(p.ticket, 'authorization_form'); }
+        catch { throw new Failure(403, 'invalid_request', '授权页面已失效，请返回 ChatGPT 重新连接。'); }
+        requireThat(typeof form.nonce === 'string' && !usedForms.has(form.nonce), 403, 'invalid_request', '这次授权已经提交，请返回 ChatGPT 查看连接状态。');
+        const cookieName = `xlc_oauth_csrf_${form.nonce}`;
+        const cookie = cookies(req)[cookieName];
+        const cookieMatches = !!cookie && equal(form.csrf, hash(cookie));
+        // Modern browsers may block cookies in an embedded login flow. Only
+        // an explicitly same-origin native form navigation may use the signed
+        // ticket without a cookie. Origin, Fetch Metadata, the owner password,
+        // expiration and one-time nonce are still checked independently.
+        const trustedNavigation = !cookie && req.headers['sec-fetch-site'] === 'same-origin' && req.headers['sec-fetch-mode'] === 'navigate';
+        requireThat(cookieMatches || trustedNavigation, 403, 'invalid_request', '浏览器未能验证这次授权页面，请从 ChatGPT 在新标签页重新打开授权。');
         requireThat(equal(p.owner_secret || '', ownerSecret), 403, 'access_denied', '连接口令不正确。');
-        forms.delete(p.ticket);
+        usedForms.set(form.nonce, { exp: form.exp });
         const code = random();
         codes.set(code, { ...form.request, exp: now() + 120 });
         const destination = new URL(form.request.redirect_uri);
         destination.searchParams.set('code', code);
         destination.searchParams.set('state', form.request.state);
         destination.searchParams.set('iss', base);
-        res.writeHead(303, { Location: destination.href, 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', 'Set-Cookie': 'xlc_oauth_csrf=; Path=/oauth; HttpOnly; Secure; SameSite=Lax; Max-Age=0' });
+        res.writeHead(303, { Location: destination.href, 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', 'Set-Cookie': `${cookieName}=; Path=/oauth; HttpOnly; Secure; SameSite=Lax; Max-Age=0` });
         return res.end();
       }
       if (req.method === 'POST' && url.pathname === '/oauth/token') {

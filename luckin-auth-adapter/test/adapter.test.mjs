@@ -62,6 +62,19 @@ async function fixture(t, options = {}) {
     ...json !== undefined ? { method: 'POST', body: JSON.stringify(json) } : {},
     ...form ? { method: 'POST', body: new URLSearchParams(form) } : {},
   });
+  // fetch() overwrites Sec-Fetch-Mode with "cors". Use raw HTTP to represent
+  // native browser form navigations with their actual Fetch Metadata headers.
+  const rawRequest = (path, { headers = {}, form } = {}) => new Promise((resolve, reject) => {
+    const payload = new URLSearchParams(form).toString();
+    const r = http.request(local + path, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', ...headers } }, response => {
+      const chunks = [];
+      response.on('data', chunk => chunks.push(chunk));
+      response.on('end', () => resolve(new Response(Buffer.concat(chunks), { status: response.statusCode, headers: response.headers })));
+      response.on('error', reject);
+    });
+    r.on('error', reject);
+    r.end(payload);
+  });
   const rpc = (method, params, access, session, id = 1) => request('/mcp', {
     headers: { accept: 'application/json, text/event-stream', ...access ? { authorization: `Bearer ${access}` } : {}, ...session ? { 'mcp-session-id': session } : {} },
     json: { jsonrpc: '2.0', id, method, params },
@@ -112,7 +125,7 @@ async function fixture(t, options = {}) {
     assert.deepEqual(calls[0].message.params.capabilities, {});
     return response.headers.get('mcp-session-id');
   }
-  return { request, rpc, registration, authorization, approvedCode, exchange, login, initialize, calls, verifyUpstream: adapter.verifyUpstream, tick: seconds => { clock += seconds; } };
+  return { request, rawRequest, rpc, registration, authorization, approvedCode, exchange, login, initialize, calls, verifyUpstream: adapter.verifyUpstream, tick: seconds => { clock += seconds; } };
 }
 
 test('anonymous MCP access fails before upstream; discovery advertises PKCE and the exact resource', async t => {
@@ -166,6 +179,54 @@ test('cross-site and opaque browser navigations can open the OAuth form without 
     assert.equal(mcp.status, 403);
     assert.equal((await mcp.json()).error, 'invalid_origin');
   }
+  assert.equal(f.calls.length, 0);
+});
+
+test('two authorization tabs retain independent CSRF cookies and can both be submitted', async t => {
+  const f = await fixture(t);
+  const first = await f.authorization();
+  const second = await f.authorization();
+  assert.notEqual(first.cookie.split('=')[0], second.cookie.split('=')[0]);
+  const jar = first.cookie + '; ' + second.cookie;
+  await f.approvedCode({ ...first, cookie: jar });
+  await f.approvedCode({ ...second, cookie: jar });
+});
+
+test('a signed unexpired authorization form remains valid across a server restart', async t => {
+  const before = await fixture(t);
+  const a = await before.authorization();
+  const after = await fixture(t);
+  const approved = await after.approvedCode(a);
+  assert.equal((await after.exchange(approved)).status, 200);
+});
+
+test('blocked cookies require exact same-origin native navigation and the correct owner password', async t => {
+  const f = await fixture(t);
+  const a = await f.authorization();
+  const form = { ticket: a.ticket, owner_secret: ENV.OWNER_LOGIN_SECRET };
+  for (const headers of [
+    { origin: BASE },
+    { origin: BASE, 'sec-fetch-site': 'cross-site', 'sec-fetch-mode': 'navigate' },
+    { origin: BASE, 'sec-fetch-site': 'same-site', 'sec-fetch-mode': 'navigate' },
+    { origin: BASE, 'sec-fetch-site': 'same-origin', 'sec-fetch-mode': 'cors' },
+    { origin: 'https://attacker.example', 'sec-fetch-site': 'same-origin', 'sec-fetch-mode': 'navigate' },
+  ]) assert.equal((await f.rawRequest('/oauth/authorize', { headers, form })).status, 403);
+  const headers = { origin: BASE, 'sec-fetch-site': 'same-origin', 'sec-fetch-mode': 'navigate' };
+  const wrong = await f.rawRequest('/oauth/authorize', { headers, form: { ...form, owner_secret: 'incorrect' } });
+  assert.equal((await wrong.json()).error, 'access_denied');
+  assert.equal((await f.rawRequest('/oauth/authorize', { headers, form })).status, 303);
+  assert.equal((await f.rawRequest('/oauth/authorize', { headers, form })).status, 403);
+});
+
+test('altered and expired signed forms cannot authorize, even with cookie-free navigation metadata', async t => {
+  const f = await fixture(t);
+  const a = await f.authorization();
+  const headers = { origin: BASE, 'sec-fetch-site': 'same-origin', 'sec-fetch-mode': 'navigate' };
+  const altered = a.ticket.slice(0, -1) + (a.ticket.endsWith('A') ? 'B' : 'A');
+  const form = { ticket: altered, owner_secret: ENV.OWNER_LOGIN_SECRET };
+  assert.equal((await f.rawRequest('/oauth/authorize', { headers, form })).status, 403);
+  f.tick(601);
+  assert.equal((await f.rawRequest('/oauth/authorize', { headers, form: { ...form, ticket: a.ticket } })).status, 403);
   assert.equal(f.calls.length, 0);
 });
 
