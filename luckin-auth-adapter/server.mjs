@@ -88,7 +88,10 @@ export function createAdapter(env = process.env, injected = {}) {
     res.writeHead(200, {
       'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store',
       'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
-      'Referrer-Policy': 'no-referrer', 'X-Content-Type-Options': 'nosniff', ...headers,
+      // A no-referrer policy turns the Origin of native form POSTs into
+      // "null". Same-origin retains the login form's origin without sending
+      // referrers to an external OAuth callback.
+      'Referrer-Policy': 'same-origin', 'X-Content-Type-Options': 'nosniff', ...headers,
     });
     res.end(`<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escape(title)}</title><style>body{font:16px/1.7 system-ui,sans-serif;background:#f2f6fb;color:#21324a;margin:0;padding:36px 18px}main{max-width:520px;margin:6vh auto;background:white;border-radius:24px;padding:28px;box-shadow:0 12px 45px #24446612}h1{font-size:24px}input,button{box-sizing:border-box;width:100%;padding:14px;border-radius:12px;font:inherit;margin-top:12px}input{border:1px solid #cdd8e6}button{border:0;background:#235d99;color:white}small{color:#596c83}</style><main>${content}</main></html>`);
   }
@@ -236,7 +239,11 @@ export function createAdapter(env = process.env, injected = {}) {
       clean();
       const url = new URL(req.url, validBase ? base : 'https://unconfigured.invalid');
       const origin = req.headers.origin;
-      requireThat(!origin || [base, 'https://chatgpt.com'].includes(origin), 403, 'invalid_origin', 'Origin not allowed.');
+      // OAuth authorization pages and public discovery must be reachable by
+      // cross-site browser navigations, including opaque redirect origins.
+      // MCP transport and mutation endpoints retain their Origin restriction.
+      const publicNavigation = req.method === 'GET' && url.pathname !== '/mcp';
+      requireThat(publicNavigation || !origin || [base, 'https://chatgpt.com'].includes(origin), 403, 'invalid_origin', 'Origin not allowed.');
       if (req.method === 'GET' && url.pathname === '/health') return json(res, 200, { status: 'ok', mode: 'read-only', configured: authReady && tokenReady });
       if (req.method === 'GET' && url.pathname === '/') return html(res, '谢临川 · 瑞幸连接', `<h1>谢临川 · 瑞幸连接</h1><p>${authReady && tokenReady ? '配置已填写，等待 ChatGPT OAuth 连接及真实接口验证。' : '等待管理员在 Render 的 Environment 页面填写凭据。'}</p><p>当前阶段只开放查询与订单预览。创建和取消订单均已禁用。</p><small>此页面不会索取瑞幸 Token，也不会创建订单。</small>`);
       requireThat(authReady, 503, 'setup_required', 'Configure the adapter URL and two independent secrets in Render first.');

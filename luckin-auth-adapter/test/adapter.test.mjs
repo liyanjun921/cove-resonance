@@ -142,8 +142,9 @@ test('owner login enforces same-origin form, CSRF cookie, password and one-time 
   const f = await fixture(t);
   const a = await f.authorization();
   assert.equal(a.page.status, 200);
+  assert.equal(a.page.headers.get('referrer-policy'), 'same-origin');
   assert.match(a.html, /不要填写瑞幸 Token/);
-  for (const headers of [{}, { origin: BASE }, { origin: 'https://attacker.example', cookie: a.cookie }]) {
+  for (const headers of [{}, { origin: BASE }, { origin: 'null', cookie: a.cookie }, { origin: 'https://attacker.example', cookie: a.cookie }]) {
     const r = await f.request('/oauth/authorize', { headers, form: { ticket: a.ticket, owner_secret: ENV.OWNER_LOGIN_SECRET } });
     assert.equal(r.status, 403);
   }
@@ -152,6 +153,20 @@ test('owner login enforces same-origin form, CSRF cookie, password and one-time 
   await f.approvedCode(a);
   const replay = await f.request('/oauth/authorize', { headers: { origin: BASE, cookie: a.cookie }, form: { ticket: a.ticket, owner_secret: ENV.OWNER_LOGIN_SECRET } });
   assert.equal(replay.status, 403);
+});
+
+test('cross-site and opaque browser navigations can open the OAuth form without granting MCP access', async t => {
+  const f = await fixture(t);
+  const a = await f.authorization();
+  for (const origin of ['null', 'https://an-external-login.example']) {
+    const response = await f.request('/oauth/authorize?' + new URLSearchParams(a.query), { headers: { origin } });
+    assert.equal(response.status, 200);
+    assert.match(await response.text(), /name="owner_secret"/);
+    const mcp = await f.request('/mcp', { headers: { origin }, json: { jsonrpc: '2.0', id: 1, method: 'initialize', params: {} } });
+    assert.equal(mcp.status, 403);
+    assert.equal((await mcp.json()).error, 'invalid_origin');
+  }
+  assert.equal(f.calls.length, 0);
 });
 
 test('authorization code cannot be replayed, exchanged with wrong PKCE or wrong resource', async t => {
