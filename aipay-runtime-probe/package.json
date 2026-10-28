@@ -1,0 +1,16 @@
+{
+  "name": "aipay-runtime-probe",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node probe.mjs",
+    "test": "node --test test.mjs"
+  },
+  "dependencies": {
+    "@alipay/agent-payment": "1.0.28"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  }
+}
