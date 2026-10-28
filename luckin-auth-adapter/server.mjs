@@ -87,7 +87,9 @@ export function createAdapter(env = process.env, injected = {}) {
   function html(res, title, content, headers = {}) {
     res.writeHead(200, {
       'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store',
-      'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
+      // Chromium applies form-action to the redirect after a successful POST,
+      // so the verified OAuth callback host must also be permitted here.
+      'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'self' https://chatgpt.com; frame-ancestors 'none'; base-uri 'none'",
       // A no-referrer policy turns the Origin of native form POSTs into
       // "null". Same-origin retains the login form's origin without sending
       // referrers to an external OAuth callback.
@@ -292,6 +294,7 @@ export function createAdapter(env = process.env, injected = {}) {
         usedForms.set(form.nonce, { exp: form.exp });
         const code = random();
         codes.set(code, { ...form.request, exp: now() + 120 });
+        console.info('LUCKIN_OAUTH_STAGE', JSON.stringify({ stage: 'authorization_code_issued', at: new Date(now() * 1000).toISOString() }));
         const destination = new URL(form.request.redirect_uri);
         destination.searchParams.set('code', code);
         destination.searchParams.set('state', form.request.state);
@@ -311,6 +314,7 @@ export function createAdapter(env = process.env, injected = {}) {
         requireThat(/^[A-Za-z0-9._~-]{43,128}$/.test(p.code_verifier || '') && equal(hash(p.code_verifier), c.code_challenge), 400, 'invalid_grant', 'Invalid PKCE verifier.');
         const ttl = 86400;
         const access = seal('access', { aud: resource, sub: 'owner', scope: SCOPE, client_id: p.client_id, jti: random(), iat: now(), exp: now() + ttl });
+        console.info('LUCKIN_OAUTH_STAGE', JSON.stringify({ stage: 'access_token_issued', at: new Date(now() * 1000).toISOString() }));
         // No reusable non-rotating refresh credentials. Reconnect after expiry.
         return json(res, 200, { access_token: access, token_type: 'Bearer', expires_in: ttl, scope: SCOPE });
       }

@@ -21,6 +21,7 @@
 ChatGPT → 本服务 OAuth 授权 → 服务端加入瑞幸 Bearer → 瑞幸官方 MCP。
 
 - 动态客户端注册仅允许 ChatGPT 的生产回调地址；不获取任意客户端 URL。
+- 登录页 CSP 明确允许 ChatGPT 回调域名，避免 Chromium 阻止成功提交后的 303 回跳；应用仍按注册信息精确校验回调路径。
 - OAuth 授权码 + PKCE S256；资源、客户端、回调地址绑定；授权码 120 秒内单次使用。
 - 登录使用独立连接口令、同源检查、每次授权独立的签名表单及 CSRF Cookie，并限制尝试次数。此口令不是瑞幸 Token。
 - 未过期的签名表单可跨服务重启验证；多个授权页的 Cookie 不会互相覆盖。Cookie 被阻止时，只有 Origin 精确匹配且 Fetch Metadata 明确表示同源原生表单导航，才可继续校验连接口令；跨站请求仍被拒绝。
@@ -33,6 +34,7 @@ ChatGPT → 本服务 OAuth 授权 → 服务端加入瑞幸 Bearer → 瑞幸�
 - 仅开放 queryShopList、searchProductForMcp、switchProduct、queryProductDetailInfo、previewOrder、queryOrderDetailInfo 中实际存在的工具。
 - 过滤并阻止 createOrder、cancelOrder 和未知工具；阻止绕过列表直接调用。
 - 没有请求正文、授权头、支付数据、地址或身份信息日志；响应额外去除服务端 Secret 原文。
+- OAuth 调试日志仅记录“签发授权码”与“签发访问凭据”两个阶段及时间，不记录授权码、凭据、口令、state 或客户端标识。
 - 不存在匿名使用瑞幸 Token 的路径；公开端点仅为健康检查、说明和 OAuth 发现/登录。
 
 ## 隔离部署
@@ -99,3 +101,7 @@ npm run check
 ```
 
 代码仅使用 Node 内置模块，无外部 npm 运行依赖。
+
+工程环境有 Playwright 与 Chromium 时，可额外运行 `node test/oauth-browser.mjs`。
+该测试使用本地模拟凭据，并仅在测试服务层把浏览器的回调接收地址映射到本地；应用的注册回调 URI、issuer、state、PKCE 和换码参数仍按 ChatGPT 回调规则验证。
+它覆盖原生表单提交、CSP、303 跨源回跳、正常 Cookie 与 Cookie 被阻止两条路径，不替代用户的真实 ChatGPT 授权验收。
