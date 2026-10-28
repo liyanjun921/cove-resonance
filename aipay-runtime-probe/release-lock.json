@@ -1,0 +1,13 @@
+{
+  "source": "https://mdn.alipayobjects.com/aipay_assets/afts/file/bplFQ7Rb4uQAAAAAgKAAAAgAeoh5AQJr",
+  "cliVersion": "0.4.9",
+  "archiveSha256": "42f89cd380d9ab808b29d0a0975a1efb77cb5b07da6becf1a6f246449ab808b8",
+  "files": {
+    "alipay-bot": "8e44c598f4eaca2241d0dd58972b28014cfd37e3511863ceff0eac6431e6b1dd",
+    "version.json": "8003c9a61a88add442a3dfc9ebc18c394be7e48553751c1bdb888c75a55d580e",
+    "dist/native/blueshield/linux-amd64/blueshield.node": "7e5bc3a9c9cbfddc4403ef51bdfe20921a64df547a5cdc570bab0fda1bdde4e6",
+    "dist/native/blueshield/linux-amd64/nearx_bs.jpg": "02987d08ef51c4b3cb3384bf04b9333c38d4ae19481030fec36ab15ea07c4826",
+    "dist/native/blueshield/linux-amd64/libblueshield.so": "8970639c49cb94f38340314b630618ae152df2b7f314d83f3136ac6c2cd1cb07",
+    "dist/native/apguard/linux-amd64/libapguard.so": "f8392ec2ad34acd26b49a6eabe6434a33814a928c9219ee092417c3c38a0d522"
+  }
+}
