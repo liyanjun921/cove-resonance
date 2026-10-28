@@ -196,6 +196,40 @@ export function createAdapter(env = process.env, injected = {}) {
     return { message: result, upstreamId: response.headers.get('mcp-session-id') };
   }
 
+  // Runs only at process startup. Credentials stay inside this process;
+  // diagnostics never execute tools/call or inspect private order data.
+  async function verifyUpstream() {
+    let session;
+    try {
+      requireThat(authReady && tokenReady, 503, 'setup_required', 'Protected configuration is incomplete.');
+      const initialized = await upstream({ jsonrpc: '2.0', id: 91001, method: 'initialize', params: {
+        protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'xlc-luckin-startup-check', version: '0.1.0' },
+      } });
+      requireThat(!initialized.message.error && typeof initialized.message.result?.protocolVersion === 'string', 502, 'upstream_initialize_failed', 'Luckin MCP initialization failed.');
+      session = { upstreamId: initialized.upstreamId, protocol: initialized.message.result.protocolVersion };
+      await upstream({ jsonrpc: '2.0', method: 'notifications/initialized' }, session);
+      const listing = await upstream({ jsonrpc: '2.0', id: 91002, method: 'tools/list', params: {} }, session);
+      requireThat(!listing.message.error && Array.isArray(listing.message.result?.tools), 502, 'upstream_tools_failed', 'Luckin tool discovery failed.');
+      const tools = listing.message.result.tools.map(t => ({
+        name: t.name,
+        required: Array.isArray(t.inputSchema?.required) ? t.inputSchema.required : [],
+        exposed: SAFE_TOOLS.has(t.name),
+      }));
+      return redact({ ok: true, checkedAt: new Date(now() * 1000).toISOString(), protocol: session.protocol, tools });
+    } catch (e) {
+      return { ok: false, checkedAt: new Date(now() * 1000).toISOString(), code: e instanceof Failure ? e.code : 'self_check_failed', message: e instanceof Failure ? e.message : 'Startup connection check failed.' };
+    } finally {
+      if (session?.upstreamId) {
+        try {
+          const closed = await fetchUpstream(OFFICIAL_URL, { method: 'DELETE', redirect: 'error', signal: AbortSignal.timeout(5000), headers: {
+            Authorization: `Bearer ${token}`, 'Mcp-Session-Id': session.upstreamId, 'MCP-Protocol-Version': session.protocol,
+          } });
+          await closed.body?.cancel().catch(() => {});
+        } catch { /* Cleanup is best effort and never retried. */ }
+      }
+    }
+  }
+
   async function handle(req, res) {
     let message;
     try {
@@ -318,7 +352,7 @@ export function createAdapter(env = process.env, injected = {}) {
       return json(res, e.status, { error: e.code, error_description: e.message }, headers);
     }
   }
-  return { handle };
+  return { handle, verifyUpstream };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -326,6 +360,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const server = http.createServer(adapter.handle);
   server.requestTimeout = 35000;
   server.headersTimeout = 10000;
-  server.listen(Number(process.env.PORT || 10000), '0.0.0.0', () => console.log('Luckin adapter started in read-only mode.'));
+  server.listen(Number(process.env.PORT || 10000), '0.0.0.0', () => {
+    console.log('Luckin adapter started in read-only mode.');
+    void adapter.verifyUpstream().then(report => console.log('LUCKIN_CONNECTION_CHECK', JSON.stringify(report)));
+  });
   process.on('SIGTERM', () => { server.close(() => process.exit(0)); setTimeout(() => process.exit(0), 10000).unref(); });
 }

@@ -18,6 +18,10 @@ const sha = s => createHash('sha256').update(s).digest('base64url');
 async function fixture(t, options = {}) {
   const calls = [];
   const mockFetch = async (url, init) => {
+    if (init.method === 'DELETE') {
+      calls.push({ url, headers: init.headers, message: { method: 'DELETE' } });
+      return new Response(null, { status: 204 });
+    }
     const message = JSON.parse(init.body);
     calls.push({ url, headers: init.headers, message });
     assert.equal(url, 'https://gwmcp.lkcoffee.com/order/user/mcp');
@@ -108,7 +112,7 @@ async function fixture(t, options = {}) {
     assert.deepEqual(calls[0].message.params.capabilities, {});
     return response.headers.get('mcp-session-id');
   }
-  return { request, rpc, registration, authorization, approvedCode, exchange, login, initialize, calls, tick: seconds => { clock += seconds; } };
+  return { request, rpc, registration, authorization, approvedCode, exchange, login, initialize, calls, verifyUpstream: adapter.verifyUpstream, tick: seconds => { clock += seconds; } };
 }
 
 test('anonymous MCP access fails before upstream; discovery advertises PKCE and the exact resource', async t => {
@@ -249,4 +253,24 @@ test('tokens expire; forged tokens and invalid Origin are rejected', async t => 
   const origin = await f.request('/mcp', { headers: { origin: 'https://attacker.example' }, json: {} });
   assert.equal(origin.status, 403);
   assert.equal(f.calls.length, 0);
+});
+
+test('startup check discovers actual upstream definitions without calling tools or reporting credentials', async t => {
+  const f = await fixture(t);
+  const report = await f.verifyUpstream();
+  assert.equal(report.ok, true);
+  assert.deepEqual(f.calls.map(c => c.message.method), ['initialize', 'notifications/initialized', 'tools/list', 'DELETE']);
+  assert.equal(report.tools.find(t => t.name === 'createOrder').exposed, false);
+  assert.deepEqual(report.tools.find(t => t.name === 'queryShopList').required, ['longitude', 'latitude']);
+  for (const secret of [ENV.LUCKIN_TOKEN, ENV.OWNER_LOGIN_SECRET, ENV.ADAPTER_SIGNING_KEY]) assert.ok(!JSON.stringify(report).includes(secret));
+});
+
+test('startup check reports failed Luckin authorization and does not fabricate a tool list', async t => {
+  const f = await fixture(t, { upstreamStatus: 401 });
+  const report = await f.verifyUpstream();
+  assert.equal(report.ok, false);
+  assert.equal(report.code, 'upstream_auth_failed');
+  assert.equal(report.tools, undefined);
+  assert.equal(f.calls.length, 1);
+  assert.ok(!JSON.stringify(report).includes(ENV.LUCKIN_TOKEN));
 });

@@ -4,7 +4,7 @@
 
 本版本解决 ChatGPT OAuth 与瑞幸静态 Bearer 请求头之间的连接方式差异。
 已在本地通过 OAuth 与 MCP 代理测试；测试中的上游明确为 mock，不能作为瑞幸真实连接成功的证据。
-尚未部署，尚未填写真实瑞幸 Token，尚未完成真实 tools/list、门店查询、商品查询和订单预览。
+本服务已独立部署到 Render。真实 tools/list、门店查询、商品查询和订单预览须分别以实际响应验收，服务上线不能代替接口验证。
 **创建和取消订单在此版本中始终禁用；没有环境变量可绕过。**
 
 ## 已核对的真实配置
@@ -27,6 +27,7 @@ ChatGPT → 本服务 OAuth 授权 → 服务端加入瑞幸 Bearer → 瑞幸�
 - 注册的客户端使用签名标识，服务重启后仍有效。签名密钥轮换会撤销已签发的访问凭据和客户端标识。
 - MCP 会话在内存中按连接隔离；重启或休眠后旧会话返回 404，由客户端重新初始化。
 - 支持 JSON 与 SSE 上游响应；没有自动重试。
+- 启动时仅执行一次 initialize / initialized / tools/list 连接自检，并尽力关闭自检会话；日志仅含状态、工具名称及必填参数名，不执行 tools/call、不记录凭据或私人订单。
 - 只代理实际 tools/list 返回的工具；保留官方 inputSchema。
 - 仅开放 queryShopList、searchProductForMcp、switchProduct、queryProductDetailInfo、previewOrder、queryOrderDetailInfo 中实际存在的工具。
 - 过滤并阻止 createOrder、cancelOrder 和未知工具；阻止绕过列表直接调用。
