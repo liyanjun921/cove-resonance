@@ -37,9 +37,23 @@ async function fixture(t, options = {}) {
       if (options.discoveryError) return Response.json({ jsonrpc: '2.0', id: message.id, error: { code: -32603, message: 'mock discovery failure' } });
       if (options.discoveryDelay) await new Promise(resolve => setTimeout(resolve, 20));
       const schema = { type: 'object', properties: { deptName: { type: 'string' }, longitude: { type: 'number' }, latitude: { type: 'number' } }, required: ['longitude', 'latitude'] };
-      result = { tools: ['queryShopList', 'previewOrder', 'createOrder', 'cancelOrder', 'unknownFutureTool'].map(name => ({ name, inputSchema: schema, description: `MOCK ${name}` })) };
+      result = { tools: ['queryShopList', 'previewOrder', 'createOrder', 'cancelOrder', 'unknownFutureTool'].map(name => ({ name, inputSchema: name === 'createOrder' && options.orderReady ? { type: 'object', properties: { deptId: { type: 'integer' }, productList: { type: 'array' }, longitude: { type: 'number' }, latitude: { type: 'number' }, couponCodeList: { type: 'array' } }, required: ['deptId', 'productList', 'longitude', 'latitude'] } : schema, description: `MOCK ${name}` })) };
     } else if (message.method === 'tools/call') {
-      result = { content: [{ type: 'text', text: JSON.stringify({ source: 'mock-only', echo: message.params.arguments, shouldBeRedacted: ENV.LUCKIN_TOKEN }) }] };
+      let output = { source: 'mock-only', echo: message.params.arguments, shouldBeRedacted: ENV.LUCKIN_TOKEN };
+      if (options.orderReady && message.params.name === 'previewOrder') {
+        const index = calls.filter(c => c.message.params?.name === 'previewOrder').length - 1;
+        const total = options.previewTotals?.[index] ?? 14.94;
+        output = { code: 0, success: true, data: {
+          shopInfo: { deptId: message.params.arguments.deptId, deptName: 'mock university store', address: 'mock address', longitude: 121.387905, latitude: 31.315806 },
+          productInfoList: message.params.arguments.productList.map(p => ({ ...p, name: 'mock latte', additionDesc: '大杯/冰/不另外加糖' })),
+          discountPrice: total, totalInitialPrice: 18, privilegeMoney: 18 - total, couponCodeList: ['mock-coupon'],
+        } };
+      }
+      if (options.orderReady && message.params.name === 'createOrder') {
+        if (options.createThrows) throw new Error('mock network loss after merchant accepted');
+        output = { code: 0, success: true, data: { orderIdStr: '7639308439653908490', needPay: true, payOrderQrCodeUrl: 'https://official-mock.example/pay' } };
+      }
+      result = { content: [{ type: 'text', text: JSON.stringify(output) }] };
     } else result = {};
     const rpc = { jsonrpc: '2.0', id: message.id, result };
     if (options.sse && message.method === 'tools/list') {
@@ -109,18 +123,18 @@ async function fixture(t, options = {}) {
   async function exchange(a, overrides = {}) {
     return request('/oauth/token', { form: { grant_type: 'authorization_code', client_id: a.clientId, redirect_uri: CALLBACK, resource: RESOURCE, code_verifier: a.verifier, code: a.code, ...overrides } });
   }
-  async function login() {
-    const a = await approvedCode();
+  async function login(scope = 'luckin:read') {
+    const a = await approvedCode(await authorization({ scope }));
     const response = await exchange(a);
     assert.equal(response.status, 200);
     const result = await response.json();
-    assert.equal(result.scope, 'luckin:read');
+    assert.equal(result.scope, scope);
     assert.equal(result.expires_in, 86400);
     assert.equal(result.refresh_token, undefined);
     return result.access_token;
   }
-  async function initialize(access) {
-    const response = await rpc('initialize', { protocolVersion: '2025-03-26', capabilities: { sampling: {} }, clientInfo: { name: 'mock-client', version: 'test' } }, access);
+  async function initialize(access, capabilities = { sampling: {} }) {
+    const response = await rpc('initialize', { protocolVersion: '2025-03-26', capabilities, clientInfo: { name: 'mock-client', version: 'test' } }, access);
     assert.equal(response.status, 200);
     const result = await response.json();
     assert.equal(result.result.serverInfo.name, 'mock-only-luckin');
@@ -284,7 +298,7 @@ test('real upstream schemas are preserved while writes and unknown tools are hid
   assert.deepEqual(tools[0].securitySchemes, [{ type: 'oauth2', scopes: ['luckin:read'] }]);
   for (const name of ['createOrder', 'cancelOrder', 'unknownFutureTool']) {
     const r = await f.rpc('tools/call', { name, arguments: { userConfirmed: true } }, access, session);
-    assert.equal(r.status, 403);
+    assert.equal(r.status, name === 'createOrder' ? 401 : 403);
   }
   assert.equal(f.calls.length, 2);
   const args = { longitude: 120.123, latitude: 30.456, deptName: 'mock shop' };
@@ -304,7 +318,7 @@ test('a client with cached tool schemas can query in a new session after automat
   const access = await f.login();
   const session = await f.initialize(access);
   for (const name of ['createOrder', 'cancelOrder', 'unknownFutureTool']) {
-    assert.equal((await f.rpc('tools/call', { name, arguments: {} }, access, session)).status, 403);
+    assert.equal((await f.rpc('tools/call', { name, arguments: {} }, access, session)).status, name === 'createOrder' ? 401 : 403);
   }
   assert.equal(f.calls.length, 1, 'blocked writes cannot even start discovery');
   const args = { longitude: 121.393459, latitude: 31.315814 };
@@ -340,6 +354,200 @@ test('failed automatic discovery returns an upstream failure without invoking th
   assert.equal(r.status, 502);
   assert.equal((await r.json()).error.data.adapterCode, 'upstream_tools_failed');
   assert.deepEqual(f.calls.map(c => c.message.method), ['initialize', 'tools/list']);
+});
+
+const ORDER_SCOPE = 'luckin:read luckin:order';
+const DRAFT_ARGS = { deptId: 359943, productList: [{ productId: 1262, skuCode: 'MOCK-SKU', amount: 1 }] };
+async function draft(f, access, session) {
+  const r = await f.rpc('tools/call', { name: 'previewOrder', arguments: DRAFT_ARGS }, access, session);
+  assert.equal(r.status, 200);
+  const result = (await r.json()).result;
+  const p = JSON.parse(result.content.at(-1).text).adapterOrderPreview;
+  assert.ok(p.previewReceipt);
+  return p;
+}
+async function nextEvent(reader) {
+  const item = await reader.read();
+  assert.ok(!item.done);
+  return new TextDecoder().decode(item.value).split('\n\n').filter(Boolean).map(e => JSON.parse(e.split('\n').find(line => line.startsWith('data: ')).slice(6)));
+}
+async function beginOrder(f, access, session, previewReceipt) {
+  const r = await f.rpc('tools/call', { name: 'createOrder', arguments: { previewReceipt } }, access, session, 123);
+  assert.equal(r.status, 200, await (r.status === 200 ? Promise.resolve('') : r.text()));
+  assert.match(r.headers.get('content-type'), /text\/event-stream/);
+  const reader = r.body.getReader();
+  const [request] = await nextEvent(reader);
+  assert.ok(['elicitation/create', 'openai/elicitation/create'].includes(request.method));
+  assert.match(request.params.message, /14\.94/);
+  assert.match(request.params.message, /大杯\/冰\/不另外加糖/);
+  assert.equal(request.params.requestedSchema.properties.confirmed.default, false);
+  return { reader, request };
+}
+async function answerOrder(f, access, session, pending, answer) {
+  const reply = await f.request('/mcp', { headers: { authorization: `Bearer ${access}`, 'mcp-session-id': session, accept: 'application/json, text/event-stream' }, json: { jsonrpc: '2.0', id: pending.request.id, result: answer } });
+  assert.equal(reply.status, 202);
+  const [result] = await nextEvent(pending.reader);
+  await pending.reader.cancel();
+  return result;
+}
+
+test('actual create discovery exposes a distinct destructive tool with separate order scope', async t => {
+  const f = await fixture(t, { orderReady: true });
+  const access = await f.login();
+  const session = await f.initialize(access);
+  const listing = await f.rpc('tools/list', {}, access, session);
+  const tools = (await listing.json()).result.tools;
+  const create = tools.find(t => t.name === 'createOrder');
+  assert.ok(create);
+  assert.equal(create.annotations.readOnlyHint, false);
+  assert.equal(create.annotations.destructiveHint, true);
+  assert.equal(create.annotations.openWorldHint, false);
+  assert.deepEqual(create.securitySchemes[0].scopes, ['luckin:read', 'luckin:order']);
+  assert.deepEqual(create.inputSchema.required, ['previewReceipt']);
+  assert.ok(!tools.some(t => t.name === 'cancelOrder'));
+  const r = await f.rpc('tools/call', { name: 'createOrder', arguments: { previewReceipt: 'forged' } }, access, session);
+  assert.equal(r.status, 401);
+  assert.match(r.headers.get('www-authenticate'), /insufficient_scope/);
+  assert.equal(f.calls.filter(c => c.message.params?.name === 'createOrder').length, 0);
+});
+
+test('native user confirmation is required even with order scope and a genuine preview', async t => {
+  const f = await fixture(t, { orderReady: true });
+  const access = await f.login(ORDER_SCOPE);
+  const session = await f.initialize(access);
+  const p = await draft(f, access, session);
+  assert.equal(p.confirmationSupported, false);
+  assert.equal(p.orderScopeGranted, true);
+  const r = await f.rpc('tools/call', { name: 'createOrder', arguments: { previewReceipt: p.previewReceipt } }, access, session);
+  assert.equal(r.status, 409);
+  assert.equal((await r.json()).error.data.adapterCode, 'confirmation_not_supported');
+  assert.equal(f.calls.filter(c => c.message.params?.name === 'createOrder').length, 0);
+});
+
+test('accept with confirmed true submits exactly the previewed official arguments once; repeat calls are blocked', async t => {
+  const f = await fixture(t, { orderReady: true });
+  const access = await f.login(ORDER_SCOPE);
+  const session = await f.initialize(access, { elicitation: { form: {} } });
+  const p = await draft(f, access, session);
+  const pending = await beginOrder(f, access, session, p.previewReceipt);
+  const replayWhilePending = await f.rpc('tools/call', { name: 'createOrder', arguments: { previewReceipt: p.previewReceipt } }, access, session);
+  assert.equal(replayWhilePending.status, 409);
+  assert.equal(f.calls.filter(c => c.message.params?.name === 'createOrder').length, 0);
+  const result = await answerOrder(f, access, session, pending, { action: 'accept', content: { confirmed: true } });
+  assert.equal(JSON.parse(result.result.content[0].text).data.orderIdStr, '7639308439653908490');
+  const creates = f.calls.filter(c => c.message.params?.name === 'createOrder');
+  assert.equal(creates.length, 1);
+  assert.deepEqual(creates[0].message.params.arguments, { ...DRAFT_ARGS, longitude: 121.387905, latitude: 31.315806, couponCodeList: ['mock-coupon'] });
+  assert.equal((await f.rpc('tools/call', { name: 'createOrder', arguments: { previewReceipt: p.previewReceipt } }, access, session)).status, 409);
+  const newPreview = await draft(f, access, session);
+  const duplicate = await f.rpc('tools/call', { name: 'createOrder', arguments: { previewReceipt: newPreview.previewReceipt } }, access, session);
+  assert.equal(duplicate.status, 409);
+  assert.equal((await duplicate.json()).error.data.adapterCode, 'duplicate_order_blocked');
+});
+
+test('decline, cancel, empty acceptance and unchecked confirmation never call createOrder', async t => {
+  for (const answer of [{ action: 'decline' }, { action: 'cancel' }, { action: 'accept', content: {} }, { action: 'accept', content: { confirmed: false } }]) {
+    const f = await fixture(t, { orderReady: true });
+    const access = await f.login(ORDER_SCOPE);
+    const session = await f.initialize(access, { extensions: { 'openai/elicitation': { form: {} } } });
+    const p = await draft(f, access, session);
+    const pending = await beginOrder(f, access, session, p.previewReceipt);
+    assert.equal(pending.request.method, 'openai/elicitation/create');
+    const result = await answerOrder(f, access, session, pending, answer);
+    assert.equal(result.result.structuredContent.orderCreated, false);
+    assert.equal(f.calls.filter(c => c.message.params?.name === 'createOrder').length, 0);
+  }
+});
+
+test('a changed price before or after confirmation prevents order creation', async t => {
+  for (const totals of [[14.94, 15.94], [14.94, 14.94, 15.94]]) {
+    const f = await fixture(t, { orderReady: true, previewTotals: totals });
+    const access = await f.login(ORDER_SCOPE);
+    const session = await f.initialize(access, { elicitation: { form: {} } });
+    const p = await draft(f, access, session);
+    let result;
+    if (totals.length === 2) {
+      const r = await f.rpc('tools/call', { name: 'createOrder', arguments: { previewReceipt: p.previewReceipt } }, access, session);
+      assert.equal(r.status, 409);
+      result = await r.json();
+    } else {
+      const pending = await beginOrder(f, access, session, p.previewReceipt);
+      result = await answerOrder(f, access, session, pending, { action: 'accept', content: { confirmed: true } });
+    }
+    assert.equal(result.error.data.adapterCode, 'preview_changed');
+    assert.equal(f.calls.filter(c => c.message.params?.name === 'createOrder').length, 0);
+  }
+});
+
+test('forged, expired, cross-client and pre-restart preview receipts cannot create an order', async t => {
+  const f = await fixture(t, { orderReady: true });
+  const access = await f.login(ORDER_SCOPE);
+  const session = await f.initialize(access, { elicitation: { form: {} } });
+  const p = await draft(f, access, session);
+  const invoke = receipt => f.rpc('tools/call', { name: 'createOrder', arguments: { previewReceipt: receipt } }, access, session);
+  assert.equal((await invoke(p.previewReceipt + 'x')).status, 409);
+  const otherAccess = await f.login(ORDER_SCOPE);
+  const otherSession = await f.initialize(otherAccess, { elicitation: { form: {} } });
+  assert.equal((await f.rpc('tools/call', { name: 'createOrder', arguments: { previewReceipt: p.previewReceipt } }, otherAccess, otherSession)).status, 409);
+  const after = await fixture(t, { orderReady: true });
+  const restartedSession = await after.initialize(access, { elicitation: { form: {} } });
+  assert.equal((await after.rpc('tools/call', { name: 'createOrder', arguments: { previewReceipt: p.previewReceipt } }, access, restartedSession)).status, 409);
+  f.tick(601);
+  assert.equal((await invoke(p.previewReceipt)).status, 409);
+  assert.equal(f.calls.filter(c => c.message.params?.name === 'createOrder').length, 0);
+});
+
+test('a confirmation answer from another session cannot authorize the pending purchase', async t => {
+  const f = await fixture(t, { orderReady: true });
+  const access = await f.login(ORDER_SCOPE);
+  const session = await f.initialize(access, { elicitation: { form: {} } });
+  const p = await draft(f, access, session);
+  const pending = await beginOrder(f, access, session, p.previewReceipt);
+  const otherSession = await f.initialize(access, { elicitation: { form: {} } });
+  const r = await f.request('/mcp', { headers: { authorization: `Bearer ${access}`, 'mcp-session-id': otherSession, accept: 'application/json, text/event-stream' }, json: { jsonrpc: '2.0', id: pending.request.id, result: { action: 'accept', content: { confirmed: true } } } });
+  assert.equal(r.status, 403);
+  const result = await answerOrder(f, access, session, pending, { action: 'decline' });
+  assert.equal(result.result.structuredContent.orderCreated, false);
+  assert.equal(f.calls.filter(c => c.message.params?.name === 'createOrder').length, 0);
+});
+
+test('two separately previewed identical orders cannot both be submitted concurrently', async t => {
+  const f = await fixture(t, { orderReady: true });
+  const access = await f.login(ORDER_SCOPE);
+  const session = await f.initialize(access, { elicitation: { form: {} } });
+  const first = await draft(f, access, session);
+  const second = await draft(f, access, session);
+  const a = await beginOrder(f, access, session, first.previewReceipt);
+  const b = await beginOrder(f, access, session, second.previewReceipt);
+  assert.ok((await answerOrder(f, access, session, a, { action: 'accept', content: { confirmed: true } })).result);
+  const blocked = await answerOrder(f, access, session, b, { action: 'accept', content: { confirmed: true } });
+  assert.equal(blocked.error.data.adapterCode, 'duplicate_order_blocked');
+  assert.equal(f.calls.filter(c => c.message.params?.name === 'createOrder').length, 1);
+});
+
+test('disconnecting the confirmation stream never submits an order', async t => {
+  const f = await fixture(t, { orderReady: true });
+  const access = await f.login(ORDER_SCOPE);
+  const session = await f.initialize(access, { elicitation: { form: {} } });
+  const p = await draft(f, access, session);
+  const pending = await beginOrder(f, access, session, p.previewReceipt);
+  await pending.reader.cancel();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.calls.filter(c => c.message.params?.name === 'createOrder').length, 0);
+});
+
+test('a lost create response is never retried and blocks a fresh identical preview in this process', async t => {
+  const f = await fixture(t, { orderReady: true, createThrows: true, previewTotals: [14.94, 14.94, 14.94, 15.94] });
+  const access = await f.login(ORDER_SCOPE);
+  const session = await f.initialize(access, { elicitation: { form: {} } });
+  const p = await draft(f, access, session);
+  const pending = await beginOrder(f, access, session, p.previewReceipt);
+  const result = await answerOrder(f, access, session, pending, { action: 'accept', content: { confirmed: true } });
+  assert.equal(result.error.data.adapterCode, 'order_outcome_unknown');
+  assert.equal(f.calls.filter(c => c.message.params?.name === 'createOrder').length, 1);
+  const again = await draft(f, access, session);
+  assert.equal((await f.rpc('tools/call', { name: 'createOrder', arguments: { previewReceipt: again.previewReceipt } }, access, session)).status, 409);
+  assert.equal(f.calls.filter(c => c.message.params?.name === 'createOrder').length, 1);
 });
 
 test('session IDs are isolated across separately authorized connections', async t => {

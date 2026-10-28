@@ -1,10 +1,12 @@
 import http from 'node:http';
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
+import { createOrderGuard } from './order-guard.mjs';
 
 const OFFICIAL_URL = 'https://gwmcp.lkcoffee.com/order/user/mcp';
 const SCOPE = 'luckin:read';
-const DIAGNOSTIC_VERSION = '2026-10-28.4';
+const ORDER_SCOPE = 'luckin:order';
+const DIAGNOSTIC_VERSION = '2026-10-28.5';
 const DIAGNOSTIC_ROUTES = new Set(['/oauth/register', '/oauth/authorize', '/oauth/token', '/mcp']);
 const DIAGNOSTIC_METHODS = new Set(['initialize', 'notifications/initialized', 'tools/list', 'tools/call', 'ping']);
 const SAFE_TOOLS = new Set([
@@ -47,6 +49,8 @@ export function createAdapter(env = process.env, injected = {}) {
   const codes = new Map();
   const sessions = new Map();
   const buckets = new Map();
+  const pendingConfirmations = new Map();
+  const orderGuard = createOrderGuard({ seal, unseal, hash, random, now, boot, providerTag: hash(token), upstream, Failure });
 
   function seal(kind, payload) {
     const data = Buffer.from(JSON.stringify({ ...payload, kind, iss: base })).toString('base64url');
@@ -136,9 +140,10 @@ export function createAdapter(env = process.env, injected = {}) {
     requireThat(c.redirect_uris.includes(p.redirect_uri), 400, 'invalid_request', 'Unregistered redirect URI.');
     requireThat(p.response_type === 'code' && p.code_challenge_method === 'S256' && /^[A-Za-z0-9_-]{43}$/.test(p.code_challenge || ''), 400, 'invalid_request', 'Authorization code with PKCE S256 is required.');
     requireThat(p.resource === resource, 400, 'invalid_target', 'Wrong OAuth resource.');
-    requireThat(!p.scope || p.scope === SCOPE, 400, 'invalid_scope', 'Only read scope is currently available.');
+    const scopes = (p.scope || SCOPE).split(/\s+/).filter(Boolean);
+    requireThat(scopes.includes(SCOPE) && scopes.every(s => [SCOPE, ORDER_SCOPE].includes(s)), 400, 'invalid_scope', 'Use luckin:read, optionally with luckin:order.');
     requireThat(typeof p.state === 'string' && p.state.length > 0 && p.state.length <= 2048, 400, 'invalid_request', 'OAuth state is required.');
-    return { client_id: p.client_id, redirect_uri: p.redirect_uri, resource, scope: SCOPE, state: p.state, code_challenge: p.code_challenge };
+    return { client_id: p.client_id, redirect_uri: p.redirect_uri, resource, scope: [SCOPE, ...scopes.includes(ORDER_SCOPE) ? [ORDER_SCOPE] : []].join(' '), state: p.state, code_challenge: p.code_challenge };
   }
   function cookies(req) {
     return Object.fromEntries((req.headers.cookie || '').split(';').map(x => x.trim().split('=').slice(0, 2)));
@@ -147,7 +152,8 @@ export function createAdapter(env = process.env, injected = {}) {
     const h = req.headers.authorization || '';
     requireThat(h.startsWith('Bearer '), 401, 'invalid_token', 'Connect this adapter using OAuth first.');
     const p = unseal(h.slice(7), 'access');
-    requireThat(p.aud === resource && p.sub === 'owner' && p.scope === SCOPE && typeof p.jti === 'string', 401, 'invalid_token', 'Invalid token audience or scope.');
+    const scopes = typeof p.scope === 'string' ? p.scope.split(' ') : [];
+    requireThat(p.aud === resource && p.sub === 'owner' && scopes.includes(SCOPE) && scopes.every(s => [SCOPE, ORDER_SCOPE].includes(s)) && typeof p.jti === 'string', 401, 'invalid_token', 'Invalid token audience or scope.');
     return p;
   }
   async function readResponse(response, id) {
@@ -207,13 +213,52 @@ export function createAdapter(env = process.env, injected = {}) {
 
   function discoveredTools(message, session) {
     requireThat(!message.error && Array.isArray(message.result?.tools), 502, 'upstream_tools_failed', '瑞幸工具发现失败；本次未调用商品或订单工具。');
-    const tools = message.result.tools.filter(t => SAFE_TOOLS.has(t.name));
+    const tools = message.result.tools.filter(t => SAFE_TOOLS.has(t.name) || (t.name === 'createOrder' && t.inputSchema?.type === 'object' && Array.isArray(t.inputSchema.required) && ['deptId', 'productList', 'longitude', 'latitude'].every(k => t.inputSchema.required.includes(k)) && t.inputSchema.required.every(k => ['deptId', 'productList', 'longitude', 'latitude', 'couponCodeList'].includes(k))));
     session.tools = new Set(tools.map(t => t.name));
     session.discovered = true;
     return tools.map(t => {
-      const schemes = [{ type: 'oauth2', scopes: [SCOPE] }];
-      return { ...t, annotations: { ...t.annotations, readOnlyHint: true, destructiveHint: false }, securitySchemes: schemes, _meta: { ...t._meta, securitySchemes: schemes } };
+      const create = t.name === 'createOrder';
+      const schemes = [{ type: 'oauth2', scopes: create ? [SCOPE, ORDER_SCOPE] : [SCOPE] }];
+      return { ...t,
+        ...create ? {
+          description: '创建真实瑞幸自取订单。先向用户展示 previewOrder 的准确门店、商品、规格、数量、优惠和金额并取得明确确认，再使用其 previewReceipt 调用。服务还会要求用户通过客户端原生确认表单确认；不支持表单或未获确认时绝不下单。不付款、不重试；超时须先核对瑞幸已有订单。',
+          inputSchema: { type: 'object', properties: { previewReceipt: { type: 'string', description: 'previewOrder 最新返回的签名预览凭据；不要向用户展示。' } }, required: ['previewReceipt'], additionalProperties: false },
+        } : {},
+        annotations: { ...t.annotations, readOnlyHint: !create, destructiveHint: create, openWorldHint: false, idempotentHint: !create }, securitySchemes: schemes, _meta: { ...t._meta, securitySchemes: schemes } };
     });
+  }
+
+  async function confirmedOrder(req, res, message, session, sid, principal) {
+    requireThat(principal.scope.split(' ').includes(ORDER_SCOPE), 401, 'order_scope_required', '当前连接仅授权查询，请重新授权 luckin:read luckin:order 后再创建订单。');
+    requireThat(session.formMethod, 409, 'confirmation_not_supported', '当前客户端未声明原生确认表单能力；为保留逐单确认，本次不创建订单。');
+    requireThat(Object.keys(message.params.arguments || {}).length === 1 && typeof message.params.arguments.previewReceipt === 'string', 400, 'invalid_request', '创建订单只接受最新 previewReceipt。');
+    const event = value => {
+      if (!res.headersSent) res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no' });
+      res.write(`event: message\ndata: ${JSON.stringify(redact(value))}\n\n`);
+    };
+    const elicit = summary => new Promise(resolve => {
+      const id = `confirm-${random()}`;
+      const finish = answer => { clearTimeout(timer); pendingConfirmations.delete(id); resolve(answer); };
+      const timer = setTimeout(() => finish({ action: 'cancel' }), 180000);
+      pendingConfirmations.set(id, { sid, owner: principal.jti, finish });
+      res.once('close', () => finish({ action: 'cancel' }));
+      event({ jsonrpc: '2.0', id, method: session.formMethod, params: {
+        mode: 'form', message: summary,
+        requestedSchema: { type: 'object', properties: { confirmed: { type: 'boolean', title: '我确认创建上述真实订单，付款由我自行完成', default: false } }, required: ['confirmed'] },
+      } });
+    });
+    try {
+      const result = await orderGuard.create(message.params.arguments.previewReceipt, principal, session, elicit);
+      if (res.destroyed) return;
+      if (res.headersSent) { event({ jsonrpc: '2.0', id: message.id, result }); res.end(); }
+      else json(res, 200, { jsonrpc: '2.0', id: message.id, result });
+    } catch (e) {
+      if (!res.headersSent) throw e;
+      if (!res.destroyed) {
+        event({ jsonrpc: '2.0', id: message.id, error: { code: -32000, message: e instanceof Failure ? e.message : '订单确认失败，本次不自动重试。', data: { adapterCode: e instanceof Failure ? e.code : 'confirmation_failed' } } });
+        res.end();
+      }
+    }
   }
 
   async function ensureDiscovered(session) {
@@ -246,7 +291,7 @@ export function createAdapter(env = process.env, injected = {}) {
       const tools = listing.message.result.tools.map(t => ({
         name: t.name,
         required: Array.isArray(t.inputSchema?.required) ? t.inputSchema.required : [],
-        exposed: SAFE_TOOLS.has(t.name),
+        exposed: SAFE_TOOLS.has(t.name) || (t.name === 'createOrder' && t.inputSchema?.type === 'object' && Array.isArray(t.inputSchema.required) && ['deptId', 'productList', 'longitude', 'latitude'].every(k => t.inputSchema.required.includes(k)) && t.inputSchema.required.every(k => ['deptId', 'productList', 'longitude', 'latitude', 'couponCodeList'].includes(k))),
       }));
       return redact({ ok: true, checkedAt: new Date(now() * 1000).toISOString(), protocol: session.protocol, tools });
     } catch (e) {
@@ -288,14 +333,14 @@ export function createAdapter(env = process.env, injected = {}) {
       // MCP transport and mutation endpoints retain their Origin restriction.
       const publicNavigation = req.method === 'GET' && url.pathname !== '/mcp';
       requireThat(publicNavigation || !origin || [base, 'https://chatgpt.com'].includes(origin), 403, 'invalid_origin', 'Origin not allowed.');
-      if (req.method === 'GET' && url.pathname === '/health') return json(res, 200, { status: 'ok', mode: 'read-only', configured: authReady && tokenReady, diagnosticVersion: DIAGNOSTIC_VERSION });
-      if (req.method === 'GET' && url.pathname === '/') return html(res, '谢临川 · 瑞幸连接', `<h1>谢临川 · 瑞幸连接</h1><p>${authReady && tokenReady ? '配置已填写，等待 ChatGPT OAuth 连接及真实接口验证。' : '等待管理员在 Render 的 Environment 页面填写凭据。'}</p><p>当前阶段只开放查询与订单预览。创建和取消订单均已禁用。</p><small>此页面不会索取瑞幸 Token，也不会创建订单。</small>`);
+      if (req.method === 'GET' && url.pathname === '/health') return json(res, 200, { status: 'ok', mode: 'confirmed-orders', configured: authReady && tokenReady, diagnosticVersion: DIAGNOSTIC_VERSION });
+      if (req.method === 'GET' && url.pathname === '/') return html(res, '谢临川 · 瑞幸连接', `<h1>谢临川 · 瑞幸连接</h1><p>查询与预览通过 ChatGPT 使用。创建订单另需下单授权、未过期的真实预览及客户端原生逐单确认；不支持确认的客户端不会下单。取消订单仍禁用。</p><small>此页面不索取瑞幸 Token，也不会创建订单。</small>`);
       requireThat(authReady, 503, 'setup_required', 'Configure the adapter URL and two independent secrets in Render first.');
       if (req.method === 'GET' && ['/.well-known/oauth-protected-resource', '/.well-known/oauth-protected-resource/mcp'].includes(url.pathname)) {
-        return json(res, 200, { resource, authorization_servers: [base], scopes_supported: [SCOPE], bearer_methods_supported: ['header'], resource_name: '谢临川 · 瑞幸咖啡（查询）' });
+        return json(res, 200, { resource, authorization_servers: [base], scopes_supported: [SCOPE, ORDER_SCOPE], bearer_methods_supported: ['header'], resource_name: '谢临川 · 瑞幸咖啡' });
       }
       if (req.method === 'GET' && ['/.well-known/oauth-authorization-server', '/.well-known/openid-configuration'].includes(url.pathname)) {
-        return json(res, 200, { issuer: base, authorization_endpoint: `${base}/oauth/authorize`, token_endpoint: `${base}/oauth/token`, registration_endpoint: `${base}/oauth/register`, response_types_supported: ['code'], grant_types_supported: ['authorization_code'], code_challenge_methods_supported: ['S256'], token_endpoint_auth_methods_supported: ['none'], scopes_supported: [SCOPE], authorization_response_iss_parameter_supported: true });
+        return json(res, 200, { issuer: base, authorization_endpoint: `${base}/oauth/authorize`, token_endpoint: `${base}/oauth/token`, registration_endpoint: `${base}/oauth/register`, response_types_supported: ['code'], grant_types_supported: ['authorization_code'], code_challenge_methods_supported: ['S256'], token_endpoint_auth_methods_supported: ['none'], scopes_supported: [SCOPE, ORDER_SCOPE], authorization_response_iss_parameter_supported: true });
       }
       if (req.method === 'POST' && url.pathname === '/oauth/register') {
         limit('register', 100, 3600);
@@ -309,11 +354,12 @@ export function createAdapter(env = process.env, injected = {}) {
         limit('authorize', 100, 600);
         for (const k of url.searchParams.keys()) requireThat(url.searchParams.getAll(k).length === 1, 400, 'invalid_request', 'Duplicate parameter.');
         const p = authRequest(Object.fromEntries(url.searchParams));
+        const ordering = p.scope.split(' ').includes(ORDER_SCOPE);
         const csrf = random(), nonce = random();
         // Signed form state survives a process restart. Each flow has its own
         // host-only cookie so concurrent authorization tabs do not overwrite it.
         const ticket = seal('authorization_form', { request: p, csrf: hash(csrf), nonce, exp: now() + 600 });
-        return html(res, '授权谢临川查询瑞幸', `<h1>连接你的瑞幸咖啡</h1><p>授权 ChatGPT 查询门店、商品、订单，并预览价格。</p><p><strong>本阶段不能创建或取消订单。</strong></p><form method="post" action="/oauth/authorize"><input type="hidden" name="ticket" value="${ticket}"><label>连接口令<input type="password" name="owner_secret" required autocomplete="current-password" minlength="32" maxlength="256"></label><small>仅填写此服务的 OWNER_LOGIN_SECRET。不要填写瑞幸 Token、短信验证码或支付密码。</small><button type="submit">确认授权查询</button></form>`, { 'Set-Cookie': `xlc_oauth_csrf_${nonce}=${csrf}; Path=/oauth; HttpOnly; Secure; SameSite=Lax; Max-Age=600` });
+        return html(res, '授权谢临川连接瑞幸', `<h1>连接你的瑞幸咖啡</h1><p>授权 ChatGPT 查询门店、商品、订单，并预览价格。</p><p><strong>${ordering ? '另外授权在逐单确认后创建真实订单；本次登录本身不创建订单，付款由你自行完成。' : '本次仅授权查询，不能创建订单。'}取消订单仍禁用。</strong></p><form method="post" action="/oauth/authorize"><input type="hidden" name="ticket" value="${ticket}"><label>连接口令<input type="password" name="owner_secret" required autocomplete="current-password" minlength="32" maxlength="256"></label><small>仅填写此服务的 OWNER_LOGIN_SECRET。不要填写瑞幸 Token、短信验证码或支付密码。</small><button type="submit">${ordering ? '授权查询与逐单确认下单' : '确认授权查询'}</button></form>`, { 'Set-Cookie': `xlc_oauth_csrf_${nonce}=${csrf}; Path=/oauth; HttpOnly; Secure; SameSite=Lax; Max-Age=600` });
       }
       if (req.method === 'POST' && url.pathname === '/oauth/authorize') {
         requireThat(origin === base, 403, 'invalid_origin', 'Authorization must be submitted from this site.');
@@ -355,10 +401,10 @@ export function createAdapter(env = process.env, injected = {}) {
         requireThat(c.client_id === p.client_id && c.redirect_uri === p.redirect_uri && p.resource === resource, 400, 'invalid_grant', 'Authorization code binding mismatch.', 'code_binding_mismatch');
         requireThat(/^[A-Za-z0-9._~-]{43,128}$/.test(p.code_verifier || '') && equal(hash(p.code_verifier), c.code_challenge), 400, 'invalid_grant', 'Invalid PKCE verifier.', 'pkce_mismatch');
         const ttl = 86400;
-        const access = seal('access', { aud: resource, sub: 'owner', scope: SCOPE, client_id: p.client_id, jti: random(), iat: now(), exp: now() + ttl });
+        const access = seal('access', { aud: resource, sub: 'owner', scope: c.scope, client_id: p.client_id, jti: random(), iat: now(), exp: now() + ttl });
         console.info('LUCKIN_OAUTH_STAGE', JSON.stringify({ stage: 'access_token_issued', at: new Date(now() * 1000).toISOString() }));
         // No reusable non-rotating refresh credentials. Reconnect after expiry.
-        return json(res, 200, { access_token: access, token_type: 'Bearer', expires_in: ttl, scope: SCOPE });
+        return json(res, 200, { access_token: access, token_type: 'Bearer', expires_in: ttl, scope: c.scope });
       }
       if (url.pathname !== '/mcp') throw new Failure(404, 'not_found', 'Not found.');
       const principal = bearer(req);
@@ -373,6 +419,13 @@ export function createAdapter(env = process.env, injected = {}) {
       requireThat(req.method === 'POST', 405, 'invalid_request', 'Use POST.');
       requireThat((req.headers.accept || '').includes('application/json') && (req.headers.accept || '').includes('text/event-stream'), 406, 'invalid_request', 'Accept must include application/json and text/event-stream.');
       message = await body(req, 'application/json');
+      if (message?.jsonrpc === '2.0' && !Object.hasOwn(message, 'method') && typeof message.id === 'string' && (Object.hasOwn(message, 'result') || Object.hasOwn(message, 'error'))) {
+        const pending = pendingConfirmations.get(message.id);
+        requireThat(pending && pending.sid === req.headers['mcp-session-id'] && pending.owner === principal.jti, 403, 'invalid_confirmation', '该确认响应不属于当前登录和会话。');
+        pending.finish(message.error ? { action: 'cancel' } : message.result);
+        res.writeHead(202, { 'Cache-Control': 'no-store' });
+        return res.end();
+      }
       requireThat(message && !Array.isArray(message) && message.jsonrpc === '2.0' && typeof message.method === 'string', 400, 'invalid_request', 'Expected one JSON-RPC 2.0 request.');
       const hasId = Object.hasOwn(message, 'id');
       requireThat(!hasId || typeof message.id === 'string' || (typeof message.id === 'number' && Number.isFinite(message.id)), 400, 'invalid_request', 'Invalid JSON-RPC ID.');
@@ -385,9 +438,13 @@ export function createAdapter(env = process.env, injected = {}) {
         if (result.message.error) return json(res, 200, result.message);
         requireThat(typeof result.message.result?.protocolVersion === 'string', 502, 'upstream_protocol_error', 'Missing upstream protocol version.');
         const sid = random();
-        sessions.set(sid, { owner: principal.jti, upstreamId: result.upstreamId, protocol: result.message.result.protocolVersion, tools: new Set(), exp: now() + 28800, boot });
+        const capabilities = message.params.capabilities || {};
+        const extensionForm = !!capabilities.extensions?.['openai/elicitation']?.form;
+        const standardForm = !!capabilities.elicitation && (Object.hasOwn(capabilities.elicitation, 'form') || Object.keys(capabilities.elicitation).length === 0);
+        sessions.set(sid, { owner: principal.jti, upstreamId: result.upstreamId, protocol: result.message.result.protocolVersion, tools: new Set(), exp: now() + 28800, boot,
+          formMethod: extensionForm ? 'openai/elicitation/create' : standardForm ? 'elicitation/create' : null });
         result.message.result.capabilities = { tools: {} };
-        result.message.result.instructions = '当前适配服务仅开放查询和非约束性订单预览；禁止创建或取消订单。不得编造瑞幸查询结果。';
+        result.message.result.instructions = '先查询真实门店、商品和规格，再 previewOrder。创建订单前必须展示准确门店、规格、数量、优惠和金额并等待用户明确确认；createOrder 还要求独立下单权限和客户端原生确认表单。预览凭据十分钟有效；超时禁止重试，先核对瑞幸订单。用户自己付款。取消订单未开放。不得编造查询、支付或订单状态。';
         return json(res, 200, result.message, { 'Mcp-Session-Id': sid });
       }
       const sid = req.headers['mcp-session-id'];
@@ -396,20 +453,28 @@ export function createAdapter(env = process.env, injected = {}) {
       requireThat(!req.headers['mcp-protocol-version'] || req.headers['mcp-protocol-version'] === session.protocol, 400, 'invalid_request', 'MCP protocol version mismatch.');
       if (message.method === 'tools/call') {
         const name = message.params?.name;
-        requireThat(SAFE_TOOLS.has(name), 403, 'write_disabled', '创建、取消及未知工具均未开放；必须先完成真实查询验收与交易确认接入。');
+        requireThat(SAFE_TOOLS.has(name) || name === 'createOrder', 403, 'write_disabled', '取消及未知工具未开放。');
+        if (name === 'createOrder') requireThat(principal.scope.split(' ').includes(ORDER_SCOPE), 401, 'order_scope_required', '当前连接仅授权查询，请重新授权 luckin:read luckin:order 后再创建订单。');
         await ensureDiscovered(session);
         requireThat(session.tools.has(name), 400, 'tool_not_discovered', '该工具未出现在瑞幸当前实际返回的工具列表中。');
+        if (name === 'createOrder') return await confirmedOrder(req, res, message, session, sid, principal);
       } else requireThat(['tools/list', 'ping', 'notifications/initialized'].includes(message.method), 400, 'method_not_allowed', 'This adapter only proxies the ordering tool protocol.');
       const result = await upstream(message, session);
       if (result.accepted) { res.writeHead(202, { 'Cache-Control': 'no-store' }); return res.end(); }
       if (message.method === 'tools/list' && !result.message.error) {
         result.message.result.tools = discoveredTools(result.message, session);
       }
+      if (message.method === 'tools/call' && message.params.name === 'previewOrder' && !result.message.error && !result.message.result?.isError) {
+        try {
+          const draft = orderGuard.capture(result.message.result, message.params.arguments, principal);
+          result.message.result.content.push({ type: 'text', text: JSON.stringify({ adapterOrderPreview: { ...draft, confirmationSupported: !!session.formMethod, orderScopeGranted: principal.scope.split(' ').includes(ORDER_SCOPE) } }) });
+        } catch { /* Keep actual merchant preview unchanged if it cannot safely authorize an order. */ }
+      }
       return json(res, 200, result.message);
     } catch (error) {
       const e = error instanceof Failure ? error : new Failure(500, 'internal_error', 'Unexpected adapter error.');
       failure = e;
-      const headers = e.status === 401 ? { 'WWW-Authenticate': `Bearer resource_metadata="${base}/.well-known/oauth-protected-resource/mcp", error="invalid_token"` } : {};
+      const headers = e.status === 401 ? { 'WWW-Authenticate': `Bearer resource_metadata="${base}/.well-known/oauth-protected-resource/mcp", error="${e.code === 'order_scope_required' ? 'insufficient_scope' : 'invalid_token'}"${e.code === 'order_scope_required' ? ', scope="luckin:read luckin:order"' : ''}` } : {};
       if (message && Object.hasOwn(message, 'id')) return json(res, e.status, { jsonrpc: '2.0', id: message.id, error: { code: -32000, message: e.message, data: { adapterCode: e.code } } }, headers);
       return json(res, e.status, { error: e.code, error_description: e.message }, headers);
     }
@@ -423,7 +488,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   server.requestTimeout = 35000;
   server.headersTimeout = 10000;
   server.listen(Number(process.env.PORT || 10000), '0.0.0.0', () => {
-    console.log('Luckin adapter started in read-only mode.');
+    console.log('Luckin adapter started with per-order confirmation guards.');
     void adapter.verifyUpstream().then(report => console.log('LUCKIN_CONNECTION_CHECK', JSON.stringify(report)));
   });
   process.on('SIGTERM', () => { server.close(() => process.exit(0)); setTimeout(() => process.exit(0), 10000).unref(); });

@@ -2,6 +2,7 @@
 !package.json
 !package-lock.json
 !server.mjs
+!order-guard.mjs
 !test
 !test/**
 !Dockerfile
