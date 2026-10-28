@@ -34,6 +34,8 @@ async function fixture(t, options = {}) {
     if (message.method === 'initialize') {
       result = { protocolVersion: '2025-03-26', capabilities: { tools: {}, resources: {} }, serverInfo: { name: 'mock-only-luckin', version: 'test' } };
     } else if (message.method === 'tools/list') {
+      if (options.discoveryError) return Response.json({ jsonrpc: '2.0', id: message.id, error: { code: -32603, message: 'mock discovery failure' } });
+      if (options.discoveryDelay) await new Promise(resolve => setTimeout(resolve, 20));
       const schema = { type: 'object', properties: { deptName: { type: 'string' }, longitude: { type: 'number' }, latitude: { type: 'number' } }, required: ['longitude', 'latitude'] };
       result = { tools: ['queryShopList', 'previewOrder', 'createOrder', 'cancelOrder', 'unknownFutureTool'].map(name => ({ name, inputSchema: schema, description: `MOCK ${name}` })) };
     } else if (message.method === 'tools/call') {
@@ -274,8 +276,6 @@ test('real upstream schemas are preserved while writes and unknown tools are hid
   const access = await f.login();
   const session = await f.initialize(access);
   assert.notEqual(session, 'mock-upstream-session');
-  const early = await f.rpc('tools/call', { name: 'queryShopList', arguments: {} }, access, session);
-  assert.equal(early.status, 400);
   const listing = await f.rpc('tools/list', {}, access, session);
   assert.equal(listing.status, 200);
   const tools = (await listing.json()).result.tools;
@@ -297,6 +297,49 @@ test('real upstream schemas are preserved while writes and unknown tools are hid
   assert.deepEqual(f.calls.at(-1).message.params.arguments, args);
   assert.equal(f.calls.at(-1).headers['Mcp-Session-Id'], 'mock-upstream-session');
   assert.notEqual(f.calls.at(-1).headers.Authorization, `Bearer ${access}`);
+});
+
+test('a client with cached tool schemas can query in a new session after automatic real upstream discovery', async t => {
+  const f = await fixture(t);
+  const access = await f.login();
+  const session = await f.initialize(access);
+  for (const name of ['createOrder', 'cancelOrder', 'unknownFutureTool']) {
+    assert.equal((await f.rpc('tools/call', { name, arguments: {} }, access, session)).status, 403);
+  }
+  assert.equal(f.calls.length, 1, 'blocked writes cannot even start discovery');
+  const args = { longitude: 121.393459, latitude: 31.315814 };
+  const first = await f.rpc('tools/call', { name: 'queryShopList', arguments: args }, access, session);
+  assert.equal(first.status, 200);
+  assert.deepEqual(f.calls.map(c => c.message.method), ['initialize', 'tools/list', 'tools/call']);
+  assert.deepEqual(f.calls.at(-1).message.params.arguments, args);
+  assert.equal((await f.rpc('tools/call', { name: 'queryShopList', arguments: args }, access, session)).status, 200);
+  assert.equal(f.calls.filter(c => c.message.method === 'tools/list').length, 1);
+  const count = f.calls.length;
+  assert.equal((await f.rpc('tools/call', { name: 'searchProductForMcp', arguments: {} }, access, session)).status, 400);
+  assert.equal(f.calls.length, count, 'a safe name absent from the real upstream list is still blocked');
+  const nextSession = await f.initialize(access);
+  assert.equal((await f.rpc('tools/call', { name: 'queryShopList', arguments: args }, access, nextSession)).status, 200);
+  assert.equal(f.calls.filter(c => c.message.method === 'tools/list').length, 2);
+});
+
+test('concurrent first tool calls share discovery and each query is forwarded exactly once', async t => {
+  const f = await fixture(t, { discoveryDelay: true });
+  const access = await f.login();
+  const session = await f.initialize(access);
+  const responses = await Promise.all([1, 2].map(id => f.rpc('tools/call', { name: 'queryShopList', arguments: { marker: id } }, access, session, id)));
+  assert.deepEqual(responses.map(r => r.status), [200, 200]);
+  assert.equal(f.calls.filter(c => c.message.method === 'tools/list').length, 1);
+  assert.deepEqual(f.calls.filter(c => c.message.method === 'tools/call').map(c => c.message.params.arguments.marker).sort(), [1, 2]);
+});
+
+test('failed automatic discovery returns an upstream failure without invoking the requested tool', async t => {
+  const f = await fixture(t, { discoveryError: true });
+  const access = await f.login();
+  const session = await f.initialize(access);
+  const r = await f.rpc('tools/call', { name: 'queryShopList', arguments: {} }, access, session);
+  assert.equal(r.status, 502);
+  assert.equal((await r.json()).error.data.adapterCode, 'upstream_tools_failed');
+  assert.deepEqual(f.calls.map(c => c.message.method), ['initialize', 'tools/list']);
 });
 
 test('session IDs are isolated across separately authorized connections', async t => {

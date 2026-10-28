@@ -30,7 +30,7 @@ ChatGPT → 本服务 OAuth 授权 → 服务端加入瑞幸 Bearer → 瑞幸�
 - MCP 会话在内存中按连接隔离；重启或休眠后旧会话返回 404，由客户端重新初始化。
 - 支持 JSON 与 SSE 上游响应；没有自动重试。
 - 启动时仅执行一次 initialize / initialized / tools/list 连接自检，并尽力关闭自检会话；日志仅含状态、工具名称及必填参数名，不执行 tools/call、不记录凭据或私人订单。
-- 只代理实际 tools/list 返回的工具；保留官方 inputSchema。
+- 只代理实际 tools/list 返回的工具；保留官方 inputSchema。ChatGPT 缓存工具 Schema、在新会话直接调用工具时，服务会先自动从瑞幸重新发现工具；并发首个查询共享一次发现请求，发现失败时不会执行工具。
 - 仅开放 queryShopList、searchProductForMcp、switchProduct、queryProductDetailInfo、previewOrder、queryOrderDetailInfo 中实际存在的工具。
 - 过滤并阻止 createOrder、cancelOrder 和未知工具；阻止绕过列表直接调用。
 - 没有请求正文、授权头、支付数据、地址或身份信息日志；响应额外去除服务端 Secret 原文。

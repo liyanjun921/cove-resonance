@@ -4,7 +4,7 @@ import { pathToFileURL } from 'node:url';
 
 const OFFICIAL_URL = 'https://gwmcp.lkcoffee.com/order/user/mcp';
 const SCOPE = 'luckin:read';
-const DIAGNOSTIC_VERSION = '2026-10-28.3';
+const DIAGNOSTIC_VERSION = '2026-10-28.4';
 const DIAGNOSTIC_ROUTES = new Set(['/oauth/register', '/oauth/authorize', '/oauth/token', '/mcp']);
 const DIAGNOSTIC_METHODS = new Set(['initialize', 'notifications/initialized', 'tools/list', 'tools/call', 'ping']);
 const SAFE_TOOLS = new Set([
@@ -205,6 +205,30 @@ export function createAdapter(env = process.env, injected = {}) {
     return { message: result, upstreamId: response.headers.get('mcp-session-id') };
   }
 
+  function discoveredTools(message, session) {
+    requireThat(!message.error && Array.isArray(message.result?.tools), 502, 'upstream_tools_failed', '瑞幸工具发现失败；本次未调用商品或订单工具。');
+    const tools = message.result.tools.filter(t => SAFE_TOOLS.has(t.name));
+    session.tools = new Set(tools.map(t => t.name));
+    session.discovered = true;
+    return tools.map(t => {
+      const schemes = [{ type: 'oauth2', scopes: [SCOPE] }];
+      return { ...t, annotations: { ...t.annotations, readOnlyHint: true, destructiveHint: false }, securitySchemes: schemes, _meta: { ...t._meta, securitySchemes: schemes } };
+    });
+  }
+
+  async function ensureDiscovered(session) {
+    if (session.discovered) return;
+    // ChatGPT can cache schemas across transport sessions and call a tool
+    // without listing again. Verify the real upstream list once per session;
+    // concurrent first calls share this read-only discovery, never tool calls.
+    session.discovery ||= (async () => {
+      const listing = await upstream({ jsonrpc: '2.0', id: `discovery-${random()}`, method: 'tools/list', params: {} }, session);
+      discoveredTools(listing.message, session);
+    })();
+    try { await session.discovery; }
+    finally { delete session.discovery; }
+  }
+
   // Runs only at process startup. Credentials stay inside this process;
   // diagnostics never execute tools/call or inspect private order data.
   async function verifyUpstream() {
@@ -373,17 +397,13 @@ export function createAdapter(env = process.env, injected = {}) {
       if (message.method === 'tools/call') {
         const name = message.params?.name;
         requireThat(SAFE_TOOLS.has(name), 403, 'write_disabled', '创建、取消及未知工具均未开放；必须先完成真实查询验收与交易确认接入。');
-        requireThat(session.tools.has(name), 400, 'tool_not_discovered', 'Call tools/list first; only tools actually returned by Luckin may be called.');
+        await ensureDiscovered(session);
+        requireThat(session.tools.has(name), 400, 'tool_not_discovered', '该工具未出现在瑞幸当前实际返回的工具列表中。');
       } else requireThat(['tools/list', 'ping', 'notifications/initialized'].includes(message.method), 400, 'method_not_allowed', 'This adapter only proxies the ordering tool protocol.');
       const result = await upstream(message, session);
       if (result.accepted) { res.writeHead(202, { 'Cache-Control': 'no-store' }); return res.end(); }
       if (message.method === 'tools/list' && !result.message.error) {
-        requireThat(Array.isArray(result.message.result?.tools), 502, 'upstream_protocol_error', 'Missing upstream tool list.');
-        result.message.result.tools = result.message.result.tools.filter(t => SAFE_TOOLS.has(t.name)).map(t => {
-          session.tools.add(t.name);
-          const schemes = [{ type: 'oauth2', scopes: [SCOPE] }];
-          return { ...t, annotations: { ...t.annotations, readOnlyHint: true, destructiveHint: false }, securitySchemes: schemes, _meta: { ...t._meta, securitySchemes: schemes } };
-        });
+        result.message.result.tools = discoveredTools(result.message, session);
       }
       return json(res, 200, result.message);
     } catch (error) {
