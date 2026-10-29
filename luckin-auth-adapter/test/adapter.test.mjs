@@ -455,6 +455,7 @@ test('decline, cancel, empty acceptance and unchecked confirmation never call cr
     assert.equal(pending.request.method, 'openai/elicitation/create');
     const result = await answerOrder(f, access, session, pending, answer);
     assert.equal(result.result.structuredContent.orderCreated, false);
+    assert.ok(['client_cancelled', 'client_declined', 'unchecked', 'missing_checkbox', 'invalid_response'].includes(result.result.structuredContent.confirmationReason));
     assert.equal(f.calls.filter(c => c.message.params?.name === 'createOrder').length, 0);
   }
 });
@@ -508,6 +509,7 @@ test('a confirmation answer from another session cannot authorize the pending pu
   assert.equal(r.status, 403);
   const result = await answerOrder(f, access, session, pending, { action: 'decline' });
   assert.equal(result.result.structuredContent.orderCreated, false);
+    assert.ok(['client_cancelled', 'client_declined', 'unchecked', 'missing_checkbox', 'invalid_response'].includes(result.result.structuredContent.confirmationReason));
   assert.equal(f.calls.filter(c => c.message.params?.name === 'createOrder').length, 0);
 });
 
@@ -759,5 +761,6 @@ test('dual-capability legacy clients receive a standard nonempty confirmation fo
   assert.deepEqual(pending.request.params.requestedSchema.required, ['confirmed']);
   const result = await answerOrder(f, access, session, pending, { action: 'cancel' });
   assert.equal(result.result.structuredContent.orderCreated, false);
+    assert.ok(['client_cancelled', 'client_declined', 'unchecked', 'missing_checkbox', 'invalid_response'].includes(result.result.structuredContent.confirmationReason));
   assert.equal(f.calls.filter(c => c.message.params?.name === 'createOrder').length, 0);
 });

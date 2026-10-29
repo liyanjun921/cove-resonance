@@ -69,7 +69,7 @@ export function createOrderGuard({ seal, unseal, hash, random, now, boot, provid
       await verify();
       const answer = await elicit(summaryFor(p.snapshot));
       if (answer?.action !== 'accept' || answer.content?.confirmed !== true) {
-        return { content: [{ type: 'text', text: '未收到用户明确确认，本次没有创建订单。' }], structuredContent: { status: 'not_confirmed', orderCreated: false } };
+        return { content: [{ type: 'text', text: '未收到用户明确确认，本次没有创建订单。' }], structuredContent: { status: 'not_confirmed', orderCreated: false, confirmationReason: answer?.action === 'cancel' ? 'client_cancelled' : answer?.action === 'decline' ? 'client_declined' : answer?.action === 'accept' ? (answer.content?.confirmed === false ? 'unchecked' : 'missing_checkbox') : 'invalid_response' } };
       }
       read(receipt, principal);
       await verify();
