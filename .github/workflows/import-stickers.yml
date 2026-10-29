@@ -1,0 +1,78 @@
+name: Import sticker ZIP
+
+on:
+  push:
+    branches:
+      - feat/sticker-mobile-clean
+    paths:
+      - "sticker-mcp-mobile-clean/imports/*.zip"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sticker-zip-import
+  cancel-in-progress: false
+
+jobs:
+  import-stickers:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the import branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+
+      - name: Find the uploaded ZIP
+        id: pack
+        shell: bash
+        run: |
+          shopt -s nullglob
+          packs=(sticker-mcp-mobile-clean/imports/*.zip)
+          if [ "${#packs[@]}" -eq 0 ]; then
+            echo "No ZIP remains; this can happen after the workflow removes a processed bundle."
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "${#packs[@]}" -ne 1 ]; then
+            echo "Please upload exactly one ZIP into sticker-mcp-mobile-clean/imports/ at a time."
+            exit 1
+          fi
+          echo "path=${packs[0]}" >> "$GITHUB_OUTPUT"
+          echo "found=true" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare assets
+        if: steps.pack.outputs.found == 'true'
+        run: python sticker-mcp-mobile-clean/import_stickers.py prepare --zip "${{ steps.pack.outputs.path }}"
+
+      - name: Commit durable image assets
+        if: steps.pack.outputs.found == 'true'
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add sticker-mcp-mobile-clean/assets
+          if ! git diff --cached --quiet; then
+            git commit -m "Add imported sticker image assets"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi
+          echo "ASSET_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Update catalog with immutable image URLs
+        if: steps.pack.outputs.found == 'true'
+        run: python sticker-mcp-mobile-clean/import_stickers.py catalog --zip "${{ steps.pack.outputs.path }}" --asset-commit "$ASSET_COMMIT"
+
+      - name: Remove the temporary import ZIP
+        if: steps.pack.outputs.found == 'true'
+        run: git rm "${{ steps.pack.outputs.path }}"
+
+      - name: Commit catalog and cleanup
+        if: steps.pack.outputs.found == 'true'
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add sticker-mcp-mobile-clean/stickers.json
+          git commit -m "Register imported stickers in mobile catalog"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
