@@ -229,7 +229,7 @@ class Handler(BaseHTTPRequestHandler):
         if u.path=="/admin/stickers":
             if not self.is_admin():return self.respond(401,{"error":"unauthorized"})
             return self.respond(200,{"stickers":listing(limit=120)})
-        m=re.fullmatch(r'/media/([a-f0-9-]{36})/(original|thumb)',u.path)
+        m=re.fullmatch(r'/media/([A-Za-z0-9_-]{1,80})/(original|thumb)',u.path)
         if m:
             sid,variant=m.groups();row=get(sid)
             if not row:return self.respond(404,{"error":"not_found"})
