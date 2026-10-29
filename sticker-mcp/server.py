@@ -13,7 +13,7 @@ MCP_KEY=os.getenv("MCP_PATH_KEY","")
 ADMIN_KEY=os.getenv("ADMIN_KEY","")
 PUBLIC=os.getenv("PUBLIC_BASE_URL","https://xlc-stickers.onrender.com").rstrip("/")
 URI="ui://xlc-stickers/picker.html"
-SINGLE_URI="ui://xlc-stickers/single-v3.html"
+SINGLE_URI="ui://xlc-stickers/single-v4.html"
 MAX=6*1024*1024
 
 def db():
@@ -197,10 +197,10 @@ def rpc(method,params):
     if name=="send_sticker":
         row=get(str(args.get("sticker_id","")))
         if not row or (not row["external_url"] and not (FILES/(row["id"]+"."+row["ext"])).exists()):return {"isError":True,"content":[{"type":"text","text":"这张表情包没有可用原图，请重新搜索。"}]}
-        return {"structuredContent":{
-                    "id":row["id"],"title":row["title"],"tags":row["tags"].split(),
-                    "category":row["category"],"image_url":signed(row,False),"alt":row["title"]},
-                "content":[{"type":"text","text":"已选中一张表情包。"}]}
+        data={"id":row["id"],"title":row["title"],"tags":row["tags"].split(),
+              "category":row["category"],"image_url":signed(row,False),"alt":row["title"]}
+        return {"structuredContent":data,
+                "content":[{"type":"text","text":json.dumps(data,ensure_ascii=False)}]}
     return {"isError":True,"content":[{"type":"text","text":"未知工具"}]}
 
 class Handler(BaseHTTPRequestHandler):
