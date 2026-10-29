@@ -150,7 +150,7 @@ def rpc(method,params):
         results=listing(args.get("query",""),args.get("category",""),args.get("limit",80))
         return tool_result({"stickers":results,"count":len(results)})
     if name=="list_sticker_categories":
-        with db() as c:rows=c.execute("SELECT category,count(*) n FROM stickers GROUP BY category").fetchall()
+        with db() as c:rows=c.execute("SELECT category,count(*) n FROM stickers WHERE demo=0 GROUP BY category").fetchall()
         return tool_result({"categories":[{"category":r["category"],"count":r["n"]} for r in rows]})
     if name=="open_sticker_library":
         return tool_result({"mode":"library"})
