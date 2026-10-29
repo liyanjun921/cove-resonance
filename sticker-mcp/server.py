@@ -23,19 +23,53 @@ def db():
 def setup():
     FILES.mkdir(parents=True,exist_ok=True)
     with db() as c:
-        c.execute("CREATE TABLE IF NOT EXISTS stickers (id TEXT PRIMARY KEY,title TEXT,tags TEXT,category TEXT,ext TEXT,mime TEXT,sha TEXT UNIQUE,created INTEGER,demo INTEGER)")
-    if not any(FILES.glob("*.png")):
-        for i,(name,cat,tags,col) in enumerate([
-          ("好耶","开心","快乐 开心","#ffe7a5"),("贴贴","撒娇","爱心 抱抱","#f9cadb"),
-          ("哭哭","情绪","委屈 眼泪","#d4e8ff"),("晚安","日常","睡觉 困困","#e6dffc"),
-          ("想你","撒娇","喜欢 亲亲","#ffdbe7"),("震惊","情绪","惊讶 啊","#cde5ff")]):
-            image=Image.new("RGBA",(260,260),(0,0,0,0))
-            d=ImageDraw.Draw(image)
-            d.ellipse((20,20,240,240),fill=col,outline="#5d5560",width=5)
-            d.ellipse((75,85,99,115),fill="#5d5560");d.ellipse((160,85,184,115),fill="#5d5560")
-            d.arc((78,100,180,185),0,180,fill="#5d5560",width=7)
-            b=io.BytesIO();image.save(b,"PNG")
-            add_image(b.getvalue(),name,tags,cat,True)
+        c.execute("CREATE TABLE IF NOT EXISTS stickers (id TEXT PRIMARY KEY,title TEXT,tags TEXT,category TEXT,ext TEXT,mime TEXT,sha TEXT UNIQUE,created INTEGER,demo INTEGER,external_url TEXT)")
+        columns={r["name"] for r in c.execute("PRAGMA table_info(stickers)").fetchall()}
+        if "external_url" not in columns:
+            c.execute("ALTER TABLE stickers ADD COLUMN external_url TEXT")
+    seed_catalog()
+
+def seed_catalog():
+    path=ROOT/"stickers.json"
+    try:
+        catalog=json.loads(path.read_text(encoding="utf-8"))
+    except (OSError,ValueError):
+        return
+    allowed_hosts={"pic1.imgdb.cn","raw.githubusercontent.com"}
+    now=int(time.time())
+    with db() as c:
+        for index,item in enumerate(catalog.get("stickers",[])):
+            sid=str(item.get("id","")).strip()
+            title=str(item.get("name") or item.get("title") or sid).strip()[:65]
+            if not sid or not title:
+                continue
+            url=item.get("image_url")
+            if url:
+                parsed=urlsplit(str(url))
+                if parsed.scheme!="https" or parsed.hostname not in allowed_hosts:
+                    url=None
+            url=str(url) if url else None
+            suffix=Path(urlsplit(url).path).suffix.lower() if url else ".jpg"
+            ext=suffix.lstrip(".")
+            if ext not in ("png","jpg","jpeg","gif","webp"):
+                ext="jpg"
+            if ext=="jpeg":
+                ext="jpg"
+            mime={"png":"image/png","jpg":"image/jpeg","gif":"image/gif","webp":"image/webp"}[ext]
+            tags=item.get("tags",[])
+            if not isinstance(tags,list):
+                tags=[str(tags)]
+            tag_text=" ".join(str(t) for t in tags)[:240]
+            category=str(item.get("category") or (tags[0] if tags else "默认"))[:36]
+            sha=hashlib.sha256((("external:"+url) if url else ("missing:"+sid)).encode()).hexdigest()
+            c.execute("""INSERT INTO stickers
+                (id,title,tags,category,ext,mime,sha,created,demo,external_url)
+                VALUES(?,?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(id) DO UPDATE SET
+                title=excluded.title,tags=excluded.tags,category=excluded.category,
+                ext=excluded.ext,mime=excluded.mime,sha=excluded.sha,
+                demo=0,external_url=excluded.external_url""",
+                (sid,title,tag_text,category,ext,mime,sha,now-index,0,url))
 
 def add_image(raw,title,tags,category,demo=False):
     if not raw or len(raw)>MAX:raise ValueError("图片大小不能超过6MB")
@@ -54,8 +88,8 @@ def add_image(raw,title,tags,category,demo=False):
         if prev:return prev["id"]
         sid=str(uuid.uuid4())
         (FILES/(sid+"."+ext)).write_bytes(raw)
-        c.execute("INSERT INTO stickers VALUES(?,?,?,?,?,?,?,?,?)",
-          (sid,str(title)[:65],str(tags)[:240],str(category)[:36],ext,mime,sha,int(time.time()),int(demo)))
+        c.execute("INSERT INTO stickers (id,title,tags,category,ext,mime,sha,created,demo,external_url) VALUES(?,?,?,?,?,?,?,?,?,?)",
+          (sid,str(title)[:65],str(tags)[:240],str(category)[:36],ext,mime,sha,int(time.time()),int(demo),None))
         return sid
 
 def get(sid):
@@ -71,9 +105,10 @@ def listing(query="",category="",limit=80):
     query=str(query).lower().strip()[:80]
     category=str(category).strip()[:36]
     with db() as c:rows=c.execute("SELECT * FROM stickers ORDER BY demo ASC,created DESC").fetchall()
+    rows=[r for r in rows if (r["external_url"] or (FILES/(r["id"]+"."+r["ext"])).exists())]
     rows=[r for r in rows if (not query or query in (r["title"]+" "+r["tags"]+" "+r["category"]).lower()) and (not category or r["category"]==category)]
     return [{"id":r["id"],"title":r["title"],"tags":r["tags"].split(),"category":r["category"],
-       "type":r["mime"],"demo":bool(r["demo"]),"preview_url":signed(r),"image_url":signed(r,False)}
+       "type":r["mime"],"demo":bool(r["demo"]),"preview_url":(r["external_url"] or signed(r)),"image_url":(r["external_url"] or signed(r,False))}
        for r in rows[:max(1,min(int(limit),120))]]
 
 WIDGET_META={"openai/widgetAccessible":True}
@@ -108,7 +143,7 @@ def rpc(method,params):
         else:
             raise KeyError("Resource not found")
         return {"contents":[{"uri":resource_uri,"mimeType":"text/html;profile=mcp-app","text":resource_path.read_text(),
-                 "_meta":{"ui":{"csp":{"resourceDomains":[PUBLIC],"connectDomains":[PUBLIC]}}}}]}
+                 "_meta":{"ui":{"csp":{"resourceDomains":[PUBLIC,"https://pic1.imgdb.cn","https://raw.githubusercontent.com"],"connectDomains":[PUBLIC]}}}}]}
     if method!="tools/call":raise KeyError("Method not found")
     name=params.get("name");args=params.get("arguments") or {}
     if name=="search_stickers":
@@ -121,10 +156,10 @@ def rpc(method,params):
         return tool_result({"mode":"library"})
     if name=="send_sticker":
         row=get(str(args.get("sticker_id","")))
-        if not row:return {"isError":True,"content":[{"type":"text","text":"表情包不存在，请重新搜索。"}]}
+        if not row or (not row["external_url"] and not (FILES/(row["id"]+"."+row["ext"])).exists()):return {"isError":True,"content":[{"type":"text","text":"这张表情包没有可用原图，请重新搜索。"}]}
         return {"structuredContent":{
                     "id":row["id"],"title":row["title"],"tags":row["tags"].split(),
-                    "category":row["category"],"image_url":signed(row,False),"alt":row["title"]},
+                    "category":row["category"],"image_url":(row["external_url"] or signed(row,False)),"alt":row["title"]},
                 "content":[{"type":"text","text":"已选中一张表情包。"}]}
     return {"isError":True,"content":[{"type":"text","text":"未知工具"}]}
 
@@ -146,7 +181,7 @@ class Handler(BaseHTTPRequestHandler):
         return len(MCP_KEY)>=32 and path.startswith("/mcp/") and hmac.compare_digest(path[5:],MCP_KEY)
     def do_GET(self):
         u=urlsplit(self.path)
-        if u.path=="/healthz":return self.respond(200,{"ok":True,"ready":len(MCP_KEY)>=32 and len(ADMIN_KEY)>=32,"storage":"ephemeral"})
+        if u.path=="/healthz":return self.respond(200,{"ok":True,"ready":len(MCP_KEY)>=32 and len(ADMIN_KEY)>=32,"storage":"GitHub catalog + temporary admin uploads"})
         if u.path=="/library":
             raw=(ROOT/"library.html").read_bytes()
             self.send_response(200);self.send_header("Content-Type","text/html; charset=utf-8");self.common()
