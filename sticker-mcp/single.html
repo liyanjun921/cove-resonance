@@ -49,7 +49,7 @@ img{display:block;width:auto;height:auto;max-width:min(280px,72vw);max-height:28
     if(typeof candidate!=="string")return false;
     let url;
     try{url=new URL(candidate)}catch(e){return false}
-    if(url.protocol!=="https:"||!["xlc-stickers.onrender.com","pic1.imgdb.cn","raw.githubusercontent.com"].includes(url.hostname))return false;
+    if(url.protocol!=="https:"||!["xlc-stickers.onrender.com","xlc-stickers-mobile-clean.onrender.com","pic1.imgdb.cn","raw.githubusercontent.com"].includes(url.hostname))return false;
     image.onload=function(){image.hidden=false;status.hidden=true};
     image.onerror=function(){
       image.hidden=true;
