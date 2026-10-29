@@ -1,7 +1,7 @@
 {
   "library_name": "林祈的猫猫表情包库",
-  "version": "1.1.0",
-  "note": "Public sticker catalog for the ChatGPT sticker MCP. Original third-party URLs are retained until images are rehosted. New uploaded images will be committed to sticker-mcp/assets and referenced by immutable commit URLs.",
+  "version": "1.2.0",
+  "note": "Public sticker catalog. The original 17 stickers are retained; 59 imported stickers are stored in the repository and use immutable commit-pinned image URLs.",
   "stickers": [
     {
       "id": "hum",
@@ -207,6 +207,1064 @@
       ],
       "when_to_use": "安慰、鼓励、情绪低落",
       "image_url": "https://pic1.imgdb.cn/i/034GH13llkiIW0rslxJhgQ.jpg"
+    },
+    {
+      "id": "tt001",
+      "name": "找老婆",
+      "description": "找老婆（想念表情）",
+      "category": "想念",
+      "tags": [
+        "找老婆",
+        "想念",
+        "找婆娘",
+        "召唤老婆",
+        "找你",
+        "亲爱的",
+        "在吗",
+        "我来啦",
+        "想你"
+      ],
+      "when_to_use": "适合「想念」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt001.jpg"
+    },
+    {
+      "id": "tt002",
+      "name": "找到老婆啦",
+      "description": "找到老婆啦（想念表情）",
+      "category": "想念",
+      "tags": [
+        "找到老婆啦",
+        "想念",
+        "寻找成功",
+        "找到老婆",
+        "老婆在这里",
+        "找到你",
+        "开开心心",
+        "想你"
+      ],
+      "when_to_use": "适合「想念」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt002.jpg"
+    },
+    {
+      "id": "tt003",
+      "name": "抢回家当老婆",
+      "description": "抢回家当老婆（表白表情）",
+      "category": "表白",
+      "tags": [
+        "抢回家当老婆",
+        "表白",
+        "想把你抢回家",
+        "当老婆",
+        "占有欲",
+        "喜欢你",
+        "求婚",
+        "娶老婆"
+      ],
+      "when_to_use": "适合「表白」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt003.jpg"
+    },
+    {
+      "id": "tt004",
+      "name": "我老婆不要我了",
+      "description": "我老婆不要我了（委屈表情）",
+      "category": "委屈",
+      "tags": [
+        "我老婆不要我了",
+        "委屈",
+        "伤心",
+        "哭哭",
+        "求哄",
+        "不理我",
+        "老婆不要我",
+        "失落"
+      ],
+      "when_to_use": "适合「委屈」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt004.jpg"
+    },
+    {
+      "id": "tt005",
+      "name": "略——",
+      "description": "略——（调皮表情）",
+      "category": "调皮",
+      "tags": [
+        "略——",
+        "调皮",
+        "略",
+        "略略略",
+        "吐舌头",
+        "做鬼脸",
+        "逗你",
+        "得意"
+      ],
+      "when_to_use": "适合「调皮」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt005.jpg"
+    },
+    {
+      "id": "tt006",
+      "name": "卖萌",
+      "description": "卖萌（撒娇表情）",
+      "category": "撒娇",
+      "tags": [
+        "卖萌",
+        "撒娇",
+        "可爱",
+        "萌萌",
+        "哄我",
+        "乖乖",
+        "求夸",
+        "眨眼"
+      ],
+      "when_to_use": "适合「撒娇」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt006.jpg"
+    },
+    {
+      "id": "tt007",
+      "name": "玫瑰送给老婆",
+      "description": "玫瑰送给老婆（表白表情）",
+      "category": "表白",
+      "tags": [
+        "玫瑰送给老婆",
+        "表白",
+        "花花",
+        "玫瑰",
+        "送花",
+        "爱你",
+        "老婆",
+        "喜欢你",
+        "浪漫"
+      ],
+      "when_to_use": "适合「表白」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt007.jpg"
+    },
+    {
+      "id": "tt008",
+      "name": "超棒大拇指",
+      "description": "超棒大拇指（夸夸表情）",
+      "category": "夸夸",
+      "tags": [
+        "超棒大拇指",
+        "夸夸",
+        "点赞",
+        "鼓励",
+        "好棒",
+        "厉害",
+        "支持",
+        "优秀",
+        "给你点赞"
+      ],
+      "when_to_use": "适合「夸夸」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt008.jpg"
+    },
+    {
+      "id": "tt009",
+      "name": "吃我一口",
+      "description": "吃我一口（调皮表情）",
+      "category": "调皮",
+      "tags": [
+        "吃我一口",
+        "调皮",
+        "吃我",
+        "吃东西",
+        "啊呜",
+        "投喂",
+        "张嘴",
+        "饿了",
+        "吃饭"
+      ],
+      "when_to_use": "适合「调皮」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt009.jpg"
+    },
+    {
+      "id": "tt010",
+      "name": "百分百笨蛋",
+      "description": "百分百笨蛋（吐槽表情）",
+      "category": "吐槽",
+      "tags": [
+        "百分百笨蛋",
+        "吐槽",
+        "笨蛋",
+        "100%笨蛋",
+        "傻瓜",
+        "可爱",
+        "调侃",
+        "搞怪"
+      ],
+      "when_to_use": "适合「吐槽」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt010.jpg"
+    },
+    {
+      "id": "tt011",
+      "name": "爱心猫猫",
+      "description": "爱心猫猫（爱你表情）",
+      "category": "爱你",
+      "tags": [
+        "爱心猫猫",
+        "爱你",
+        "爱心",
+        "喜欢你",
+        "心动",
+        "猫猫",
+        "贴贴",
+        "亲亲"
+      ],
+      "when_to_use": "适合「爱你」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt011.jpg"
+    },
+    {
+      "id": "tt012",
+      "name": "蹭蹭裤腿",
+      "description": "蹭蹭裤腿（撒娇表情）",
+      "category": "撒娇",
+      "tags": [
+        "蹭蹭裤腿",
+        "撒娇",
+        "蹭蹭",
+        "抱腿",
+        "粘人",
+        "老婆",
+        "不要走",
+        "贴贴",
+        "想抱你",
+        "依赖"
+      ],
+      "when_to_use": "适合「撒娇」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt012.jpg"
+    },
+    {
+      "id": "tt013",
+      "name": "星星眼求夸夸",
+      "description": "星星眼求夸夸（夸夸表情）",
+      "category": "夸夸",
+      "tags": [
+        "星星眼求夸夸",
+        "夸夸",
+        "星星眼",
+        "期待",
+        "求夸",
+        "可爱",
+        "开心",
+        "喜欢",
+        "崇拜",
+        "望着你"
+      ],
+      "when_to_use": "适合「夸夸」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt013.jpg"
+    },
+    {
+      "id": "tt014",
+      "name": "嗷呜亲一口",
+      "description": "嗷呜亲一口（亲亲表情）",
+      "category": "亲亲",
+      "tags": [
+        "嗷呜亲一口",
+        "亲亲",
+        "嗷呜",
+        "啃啃",
+        "咬一口",
+        "贴贴",
+        "喜欢你",
+        "撒娇"
+      ],
+      "when_to_use": "适合「亲亲」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt014.jpg"
+    },
+    {
+      "id": "tt015",
+      "name": "小团子开心",
+      "description": "小团子开心（开心表情）",
+      "category": "开心",
+      "tags": [
+        "小团子开心",
+        "开心",
+        "好耶",
+        "激动",
+        "眼睛亮晶晶",
+        "高兴",
+        "快乐"
+      ],
+      "when_to_use": "适合「开心」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt015.jpg"
+    },
+    {
+      "id": "tt016",
+      "name": "团子害羞",
+      "description": "团子害羞（害羞表情）",
+      "category": "害羞",
+      "tags": [
+        "团子害羞",
+        "害羞",
+        "脸红",
+        "不好意思",
+        "腼腆",
+        "嘿嘿",
+        "羞羞"
+      ],
+      "when_to_use": "适合「害羞」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt016.jpg"
+    },
+    {
+      "id": "tt017",
+      "name": "捧着爱心给你",
+      "description": "捧着爱心给你（爱你表情）",
+      "category": "爱你",
+      "tags": [
+        "捧着爱心给你",
+        "爱你",
+        "爱心",
+        "送心",
+        "喜欢",
+        "表白",
+        "心动",
+        "送给你"
+      ],
+      "when_to_use": "适合「爱你」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt017.jpg"
+    },
+    {
+      "id": "tt018",
+      "name": "两只团子亲亲",
+      "description": "两只团子亲亲（亲亲表情）",
+      "category": "亲亲",
+      "tags": [
+        "两只团子亲亲",
+        "亲亲",
+        "贴贴",
+        "啵啵",
+        "亲一个",
+        "情侣",
+        "喜欢你",
+        "爱你"
+      ],
+      "when_to_use": "适合「亲亲」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt018.jpg"
+    },
+    {
+      "id": "tt019",
+      "name": "浪漫感动",
+      "description": "浪漫感动（感动表情）",
+      "category": "感动",
+      "tags": [
+        "浪漫感动",
+        "感动",
+        "浪漫",
+        "心动",
+        "喜欢",
+        "好幸福",
+        "好感动",
+        "呜呜"
+      ],
+      "when_to_use": "适合「感动」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt019.jpg"
+    },
+    {
+      "id": "tt020",
+      "name": "请吃吃喝喝",
+      "description": "请吃吃喝喝（投喂表情）",
+      "category": "投喂",
+      "tags": [
+        "请吃吃喝喝",
+        "投喂",
+        "吃饭",
+        "喝水",
+        "吃吃喝喝",
+        "请吃",
+        "饭饭",
+        "喝喝"
+      ],
+      "when_to_use": "适合「投喂」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt020.jpg"
+    },
+    {
+      "id": "tt021",
+      "name": "宝宝爱心气球",
+      "description": "宝宝爱心气球（撒娇表情）",
+      "category": "撒娇",
+      "tags": [
+        "宝宝爱心气球",
+        "撒娇",
+        "宝宝",
+        "爱心",
+        "气球",
+        "想你",
+        "小可爱",
+        "抱抱",
+        "开心"
+      ],
+      "when_to_use": "适合「撒娇」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt021.jpg"
+    },
+    {
+      "id": "tt022",
+      "name": "我来啦",
+      "description": "我来啦（开心表情）",
+      "category": "开心",
+      "tags": [
+        "我来啦",
+        "开心",
+        "来啦",
+        "奔向你",
+        "见面",
+        "飞奔",
+        "想你"
+      ],
+      "when_to_use": "适合「开心」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt022.jpg"
+    },
+    {
+      "id": "tt023",
+      "name": "媳妇儿啵啵",
+      "description": "媳妇儿啵啵（亲亲表情）",
+      "category": "亲亲",
+      "tags": [
+        "媳妇儿啵啵",
+        "亲亲",
+        "媳妇儿",
+        "啵啵",
+        "爱你",
+        "喜欢你",
+        "天使",
+        "爱心"
+      ],
+      "when_to_use": "适合「亲亲」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt023.jpg"
+    },
+    {
+      "id": "tt024",
+      "name": "幸福小信封",
+      "description": "幸福小信封（爱你表情）",
+      "category": "爱你",
+      "tags": [
+        "幸福小信封",
+        "爱你",
+        "幸福",
+        "收信",
+        "情书",
+        "喜欢",
+        "表白",
+        "爱心",
+        "告白"
+      ],
+      "when_to_use": "适合「爱你」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt024.jpg"
+    },
+    {
+      "id": "tt025",
+      "name": "最最最爱老婆了",
+      "description": "最最最爱老婆了（表白表情）",
+      "category": "表白",
+      "tags": [
+        "最最最爱老婆了",
+        "表白",
+        "最爱老婆",
+        "超级爱你",
+        "玫瑰",
+        "爱情",
+        "喜欢",
+        "爱心"
+      ],
+      "when_to_use": "适合「表白」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt025.jpg"
+    },
+    {
+      "id": "tt026",
+      "name": "被老婆喂得圆滚滚",
+      "description": "被老婆喂得圆滚滚（被宠表情）",
+      "category": "被宠",
+      "tags": [
+        "被老婆喂得圆滚滚",
+        "被宠",
+        "投喂",
+        "吃胖",
+        "幸福",
+        "开心得胖胖"
+      ],
+      "when_to_use": "适合「被宠」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt026.jpg"
+    },
+    {
+      "id": "tt027",
+      "name": "想老婆想打电话",
+      "description": "想老婆想打电话（想念表情）",
+      "category": "想念",
+      "tags": [
+        "想老婆想打电话",
+        "想念",
+        "想老婆了",
+        "想你",
+        "打电话",
+        "联系你",
+        "想听声音",
+        "电话",
+        "哭哭"
+      ],
+      "when_to_use": "适合「想念」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt027.jpg"
+    },
+    {
+      "id": "tt028",
+      "name": "老婆不在我就哭",
+      "description": "老婆不在我就哭（委屈表情）",
+      "category": "委屈",
+      "tags": [
+        "老婆不在我就哭",
+        "委屈",
+        "老婆不在",
+        "哭哭",
+        "想你",
+        "伤心",
+        "不开心",
+        "求抱抱"
+      ],
+      "when_to_use": "适合「委屈」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt028.jpg"
+    },
+    {
+      "id": "tt029",
+      "name": "被欺负了找老婆",
+      "description": "被欺负了找老婆（委屈表情）",
+      "category": "委屈",
+      "tags": [
+        "被欺负了找老婆",
+        "委屈",
+        "被欺负",
+        "找老婆",
+        "求保护",
+        "可怜",
+        "抱抱",
+        "安慰"
+      ],
+      "when_to_use": "适合「委屈」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt029.jpg"
+    },
+    {
+      "id": "tt030",
+      "name": "被老婆发现坏事",
+      "description": "被老婆发现坏事（调皮表情）",
+      "category": "调皮",
+      "tags": [
+        "被老婆发现坏事",
+        "调皮",
+        "略略略",
+        "吐舌头",
+        "做坏事",
+        "被发现",
+        "嘿嘿",
+        "偷偷"
+      ],
+      "when_to_use": "适合「调皮」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt030.jpg"
+    },
+    {
+      "id": "tt031",
+      "name": "摸摸头就好",
+      "description": "摸摸头就好（撒娇表情）",
+      "category": "撒娇",
+      "tags": [
+        "摸摸头就好",
+        "撒娇",
+        "摸摸头",
+        "摸头",
+        "乖乖",
+        "奖励",
+        "贴贴",
+        "被摸头"
+      ],
+      "when_to_use": "适合「撒娇」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt031.jpg"
+    },
+    {
+      "id": "tt032",
+      "name": "收到老婆信息好开心",
+      "description": "收到老婆信息好开心（开心表情）",
+      "category": "开心",
+      "tags": [
+        "收到老婆信息好开心",
+        "开心",
+        "老婆消息",
+        "收到信息",
+        "好开心",
+        "高兴",
+        "看见你回复",
+        "想你"
+      ],
+      "when_to_use": "适合「开心」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt032.jpg"
+    },
+    {
+      "id": "tt033",
+      "name": "靠近老婆就吃醋",
+      "description": "靠近老婆就吃醋（吃醋表情）",
+      "category": "吃醋",
+      "tags": [
+        "靠近老婆就吃醋",
+        "吃醋",
+        "有人靠近老婆",
+        "小醋坛",
+        "占有欲",
+        "护老婆",
+        "哼"
+      ],
+      "when_to_use": "适合「吃醋」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt033.jpg"
+    },
+    {
+      "id": "tt034",
+      "name": "每天盯着老婆",
+      "description": "每天盯着老婆（想念表情）",
+      "category": "想念",
+      "tags": [
+        "每天盯着老婆",
+        "想念",
+        "看老婆",
+        "想你",
+        "看着你",
+        "盯着你",
+        "每天想你",
+        "贴贴"
+      ],
+      "when_to_use": "适合「想念」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt034.jpg"
+    },
+    {
+      "id": "tt035",
+      "name": "歪头疑惑小狗",
+      "description": "歪头疑惑小狗（疑惑表情）",
+      "category": "疑惑",
+      "tags": [
+        "歪头疑惑小狗",
+        "疑惑",
+        "啊",
+        "什么",
+        "不懂",
+        "为什么",
+        "迷惑",
+        "歪头"
+      ],
+      "when_to_use": "适合「疑惑」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt035.jpg"
+    },
+    {
+      "id": "tt036",
+      "name": "开心奔向你",
+      "description": "开心奔向你（撒娇表情）",
+      "category": "撒娇",
+      "tags": [
+        "开心奔向你",
+        "撒娇",
+        "开心地跑向你",
+        "飞奔",
+        "贴贴",
+        "抱抱",
+        "我来了",
+        "想你"
+      ],
+      "when_to_use": "适合「撒娇」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt036.jpg"
+    },
+    {
+      "id": "tt037",
+      "name": "求牵手",
+      "description": "求牵手（亲密表情）",
+      "category": "亲密",
+      "tags": [
+        "求牵手",
+        "亲密",
+        "牵手",
+        "给手手",
+        "手牵手",
+        "撒娇",
+        "想要你牵我"
+      ],
+      "when_to_use": "适合「亲密」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt037.jpg"
+    },
+    {
+      "id": "tt038",
+      "name": "小狗比心",
+      "description": "小狗比心（爱你表情）",
+      "category": "爱你",
+      "tags": [
+        "小狗比心",
+        "爱你",
+        "比心",
+        "喜欢你",
+        "爱心",
+        "贴贴",
+        "亲亲",
+        "你真好"
+      ],
+      "when_to_use": "适合「爱你」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt038.jpg"
+    },
+    {
+      "id": "tt039",
+      "name": "小狗送花花",
+      "description": "小狗送花花（表白表情）",
+      "category": "表白",
+      "tags": [
+        "小狗送花花",
+        "表白",
+        "送你花花",
+        "玫瑰",
+        "花束",
+        "礼物",
+        "浪漫",
+        "想你"
+      ],
+      "when_to_use": "适合「表白」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt039.jpg"
+    },
+    {
+      "id": "tt040",
+      "name": "小狗爱心拥抱",
+      "description": "小狗爱心拥抱（拥抱表情）",
+      "category": "拥抱",
+      "tags": [
+        "小狗爱心拥抱",
+        "拥抱",
+        "抱抱",
+        "比心",
+        "爱心",
+        "爱你",
+        "喜欢你",
+        "抱紧"
+      ],
+      "when_to_use": "适合「拥抱」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt040.jpg"
+    },
+    {
+      "id": "tt041",
+      "name": "嘿嘿送你爱心",
+      "description": "嘿嘿送你爱心（爱你表情）",
+      "category": "爱你",
+      "tags": [
+        "嘿嘿送你爱心",
+        "爱你",
+        "嘿嘿",
+        "YOU",
+        "心动",
+        "送爱心",
+        "表白",
+        "喜欢你",
+        "卖萌"
+      ],
+      "when_to_use": "适合「爱你」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt041.jpg"
+    },
+    {
+      "id": "tt042",
+      "name": "爱心小狗心动",
+      "description": "爱心小狗心动（心动表情）",
+      "category": "心动",
+      "tags": [
+        "爱心小狗心动",
+        "心动",
+        "爱心",
+        "喜欢你",
+        "悄悄爱你",
+        "心心",
+        "甜蜜"
+      ],
+      "when_to_use": "适合「心动」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt042.jpg"
+    },
+    {
+      "id": "tt043",
+      "name": "好好喜欢你",
+      "description": "好好喜欢你（表白表情）",
+      "category": "表白",
+      "tags": [
+        "好好喜欢你",
+        "表白",
+        "好喜欢你",
+        "喜欢你",
+        "告白",
+        "羞涩",
+        "脸红",
+        "爱你"
+      ],
+      "when_to_use": "适合「表白」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt043.jpg"
+    },
+    {
+      "id": "tt044",
+      "name": "请收下我的心意",
+      "description": "请收下我的心意（表白表情）",
+      "category": "表白",
+      "tags": [
+        "请收下我的心意",
+        "表白",
+        "请收下",
+        "我的心意",
+        "情书",
+        "情话",
+        "告白",
+        "喜欢你"
+      ],
+      "when_to_use": "适合「表白」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt044.jpg"
+    },
+    {
+      "id": "tt045",
+      "name": "两只团子贴贴",
+      "description": "两只团子贴贴（贴贴表情）",
+      "category": "贴贴",
+      "tags": [
+        "两只团子贴贴",
+        "贴贴",
+        "亲亲",
+        "抱抱",
+        "爱情",
+        "心心",
+        "两个人",
+        "情侣"
+      ],
+      "when_to_use": "适合「贴贴」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt045.jpg"
+    },
+    {
+      "id": "tt046",
+      "name": "爱心爱心biu",
+      "description": "爱心爱心biu（爱你表情）",
+      "category": "爱你",
+      "tags": [
+        "爱心爱心biu",
+        "爱你",
+        "爱心biu",
+        "啵",
+        "啾咪",
+        "亲亲",
+        "送爱心",
+        "比心"
+      ],
+      "when_to_use": "适合「爱你」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt046.jpg"
+    },
+    {
+      "id": "tt047",
+      "name": "身心愉悦的一天",
+      "description": "身心愉悦的一天（吐槽表情）",
+      "category": "吐槽",
+      "tags": [
+        "身心愉悦的一天",
+        "吐槽",
+        "这一天总算来了",
+        "身心愉悦",
+        "搞笑",
+        "无语",
+        "开心",
+        "名场面",
+        "综艺"
+      ],
+      "when_to_use": "适合「吐槽」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt047.jpg"
+    },
+    {
+      "id": "tt048",
+      "name": "这又是什么情趣",
+      "description": "这又是什么情趣（吐槽表情）",
+      "category": "吐槽",
+      "tags": [
+        "这又是什么情趣",
+        "吐槽",
+        "疑惑",
+        "无语",
+        "震惊",
+        "搞怪"
+      ],
+      "when_to_use": "适合「吐槽」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt048.jpg"
+    },
+    {
+      "id": "tt049",
+      "name": "明白！",
+      "description": "明白！（回复表情）",
+      "category": "回复",
+      "tags": [
+        "明白！",
+        "回复",
+        "明白",
+        "收到",
+        "好的",
+        "OK",
+        "遵命",
+        "知道了",
+        "懂啦"
+      ],
+      "when_to_use": "适合「回复」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt049.jpg"
+    },
+    {
+      "id": "tt050",
+      "name": "在想你",
+      "description": "在想你（想念表情）",
+      "category": "想念",
+      "tags": [
+        "在想你",
+        "想念",
+        "想你了",
+        "思念",
+        "想老婆",
+        "爱心",
+        "想念你"
+      ],
+      "when_to_use": "适合「想念」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt050.jpg"
+    },
+    {
+      "id": "tt051",
+      "name": "星星眼开心小猫",
+      "description": "星星眼开心小猫（开心表情）",
+      "category": "开心",
+      "tags": [
+        "星星眼开心小猫",
+        "开心",
+        "星星眼",
+        "喜欢你",
+        "好耶",
+        "期待",
+        "想你",
+        "小猫"
+      ],
+      "when_to_use": "适合「开心」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt051.jpg"
+    },
+    {
+      "id": "tt052",
+      "name": "在干嘛",
+      "description": "在干嘛（问候表情）",
+      "category": "问候",
+      "tags": [
+        "在干嘛",
+        "问候",
+        "干什么呢",
+        "查岗",
+        "你好",
+        "想找你"
+      ],
+      "when_to_use": "适合「问候」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt052.jpg"
+    },
+    {
+      "id": "tt053",
+      "name": "查岗！",
+      "description": "查岗！（查岗表情）",
+      "category": "查岗",
+      "tags": [
+        "查岗！",
+        "查岗",
+        "在干嘛",
+        "观察你",
+        "检查",
+        "情况",
+        "如何",
+        "做什么"
+      ],
+      "when_to_use": "适合「查岗」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt053.jpg"
+    },
+    {
+      "id": "tt054",
+      "name": "等回复",
+      "description": "等回复（等待表情）",
+      "category": "等待",
+      "tags": [
+        "等回复",
+        "等待",
+        "等消息",
+        "等你",
+        "回应",
+        "担心"
+      ],
+      "when_to_use": "适合「等待」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt054.jpg"
+    },
+    {
+      "id": "tt055",
+      "name": "我速速等着",
+      "description": "我速速等着（等待表情）",
+      "category": "等待",
+      "tags": [
+        "我速速等着",
+        "等待",
+        "期待",
+        "等你",
+        "等一下",
+        "马上",
+        "急急"
+      ],
+      "when_to_use": "适合「等待」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt055.jpg"
+    },
+    {
+      "id": "tt056",
+      "name": "小狗等你",
+      "description": "小狗等你（等待表情）",
+      "category": "等待",
+      "tags": [
+        "小狗等你",
+        "等待",
+        "等你",
+        "等老婆",
+        "想你",
+        "乖乖",
+        "守候"
+      ],
+      "when_to_use": "适合「等待」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt056.jpg"
+    },
+    {
+      "id": "tt057",
+      "name": "不怕我在",
+      "description": "不怕我在（安慰表情）",
+      "category": "安慰",
+      "tags": [
+        "不怕我在",
+        "安慰",
+        "不怕",
+        "我在",
+        "我陪你",
+        "抱抱",
+        "陪伴",
+        "安心",
+        "保护"
+      ],
+      "when_to_use": "适合「安慰」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt057.jpg"
+    },
+    {
+      "id": "tt058",
+      "name": "为什么不找我",
+      "description": "为什么不找我（委屈表情）",
+      "category": "委屈",
+      "tags": [
+        "为什么不找我",
+        "委屈",
+        "为什么一天不找我",
+        "生气",
+        "吃醋",
+        "想你",
+        "查岗",
+        "哄我"
+      ],
+      "when_to_use": "适合「委屈」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt058.jpg"
+    },
+    {
+      "id": "tt059",
+      "name": "想和你睡觉",
+      "description": "想和你睡觉（晚安表情）",
+      "category": "晚安",
+      "tags": [
+        "想和你睡觉",
+        "晚安",
+        "睡觉",
+        "一起睡",
+        "困困",
+        "陪我"
+      ],
+      "when_to_use": "适合「晚安」情境",
+      "image_url": "https://raw.githubusercontent.com/liyanjun921/cove-resonance/23eaa42ed2b317be9567b6187b5cc32a26493857/sticker-mcp-mobile-clean/assets/tt059.jpg"
     }
   ]
 }
