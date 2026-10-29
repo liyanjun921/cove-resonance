@@ -1,0 +1,212 @@
+{
+  "library_name": "林祈的猫猫表情包库",
+  "version": "1.1.0",
+  "note": "Public sticker catalog for the ChatGPT sticker MCP. Original third-party URLs are retained until images are rehosted. New uploaded images will be committed to sticker-mcp/assets and referenced by immutable commit URLs.",
+  "stickers": [
+    {
+      "id": "hum",
+      "name": "哼",
+      "description": "小白猫皱着扁嘴，旁边飘着粉色生气符号。",
+      "tags": [
+        "傲娇",
+        "假装生气",
+        "撒娇"
+      ],
+      "when_to_use": "被逗、故意装作不高兴时",
+      "image_url": "https://pic1.imgdb.cn/i/034Ea9hTGXKIfGO655weV1.jpg"
+    },
+    {
+      "id": "rude",
+      "name": "比中指",
+      "description": "小白猫脑门冒粉色生气符号，伸出中指。",
+      "tags": [
+        "吐槽",
+        "坏脾气",
+        "损友"
+      ],
+      "when_to_use": "仅用于双方都接受的玩笑；不要对用户真骂",
+      "image_url": "https://pic1.imgdb.cn/i/034EmmhIt9QJVnRL4UQuqB.jpg"
+    },
+    {
+      "id": "cheer",
+      "name": "加油",
+      "description": "小白猫鼓起强壮的胳膊，握拳打气，配文「加油」。",
+      "tags": [
+        "鼓励",
+        "打气",
+        "支持"
+      ],
+      "when_to_use": "用户准备考试、工作或需要打气时",
+      "image_url": null
+    },
+    {
+      "id": "punch",
+      "name": "出击",
+      "description": "小白猫头上冒粉色生气符号，伸出拳头准备出击。",
+      "tags": [
+        "生气",
+        "护短",
+        "打气"
+      ],
+      "when_to_use": "玩笑式替用户出头",
+      "image_url": "https://pic1.imgdb.cn/i/034FCMsn6rOrqKdd8FJ6Nd.jpg"
+    },
+    {
+      "id": "angel",
+      "name": "升天",
+      "description": "小白猫头顶光环、眼睛叉叉，仿佛升天。",
+      "tags": [
+        "被萌晕",
+        "夸张",
+        "震惊"
+      ],
+      "when_to_use": "被一句话甜到晕、夸张地受不了",
+      "image_url": "https://pic1.imgdb.cn/i/034FCrY4CE8DRnYNmbQ9c8.jpg"
+    },
+    {
+      "id": "sleep",
+      "name": "睡觉",
+      "description": "小白猫正在熟睡，头顶飘着 zzz。",
+      "tags": [
+        "晚安",
+        "睡觉",
+        "困倦"
+      ],
+      "when_to_use": "晚安或困了",
+      "image_url": "https://pic1.imgdb.cn/i/034FD4YfjaWy0dLIDB05M7.jpg"
+    },
+    {
+      "id": "surrender",
+      "name": "投降",
+      "description": "小白猫脸上挂蓝色汗珠，举着小白旗，配文「投降」。",
+      "tags": [
+        "认输",
+        "无奈",
+        "撒娇"
+      ],
+      "when_to_use": "被逗到无话可说",
+      "image_url": "https://pic1.imgdb.cn/i/034FDAmqbDpNUB7s90cOos.jpg"
+    },
+    {
+      "id": "done",
+      "name": "生无可恋",
+      "description": "小白猫耷拉眼皮，脸旁有黑线，表情蔫蔫的。",
+      "tags": [
+        "无语",
+        "疲惫",
+        "崩溃"
+      ],
+      "when_to_use": "遇到离谱事情时",
+      "image_url": "https://pic1.imgdb.cn/i/034FDPGBKM4x1yIt9qvr0I.jpg"
+    },
+    {
+      "id": "loading",
+      "name": "加载中",
+      "description": "小白猫脑袋上疯狂转圈加载图标。",
+      "tags": [
+        "思考",
+        "宕机",
+        "惊呆"
+      ],
+      "when_to_use": "复杂问题或出乎意料",
+      "image_url": "https://pic1.imgdb.cn/i/034FDkVkvBWzCxo1CaC31v.jpg"
+    },
+    {
+      "id": "cry",
+      "name": "泣",
+      "description": "小白猫眼泪直流，配文「泣」。",
+      "tags": [
+        "哭哭",
+        "委屈",
+        "感动"
+      ],
+      "when_to_use": "撒娇或感动，不用于严肃危机",
+      "image_url": "https://pic1.imgdb.cn/i/034FDkVkjIpZX3Y6ec1jnu.jpg"
+    },
+    {
+      "id": "shock",
+      "name": "惊",
+      "description": "小白猫瞪大眼睛，脸颊旁三道竖线，配文「惊」。",
+      "tags": [
+        "惊讶",
+        "震撼",
+        "吃惊"
+      ],
+      "when_to_use": "令人意外的好消息",
+      "image_url": "https://pic1.imgdb.cn/i/034GGdSdf4fDrP2aOPeM9p.jpg"
+    },
+    {
+      "id": "kiss",
+      "name": "亲亲",
+      "description": "小白猫嘴弯成 ω 形，头顶 :3。",
+      "tags": [
+        "亲亲",
+        "亲昵",
+        "可爱"
+      ],
+      "when_to_use": "亲密玩笑、晚安",
+      "image_url": "https://pic1.imgdb.cn/i/034GGhZSqb3d3rzfSeZP2E.jpg"
+    },
+    {
+      "id": "angry",
+      "name": "生气",
+      "description": "小白猫从下往上变红，额头两侧冒怒气符号。",
+      "tags": [
+        "生气",
+        "傲娇",
+        "被气到"
+      ],
+      "when_to_use": "轻度生气和吐槽",
+      "image_url": "https://pic1.imgdb.cn/i/034GGu4KqedXF9Gt9dVpB1.jpg"
+    },
+    {
+      "id": "bonk",
+      "name": "咚",
+      "description": "小白猫带着怒气把小黑猫锤哭，配文「咚」。",
+      "tags": [
+        "打闹",
+        "吐槽",
+        "玩笑"
+      ],
+      "when_to_use": "亲昵打闹，不用于真实冲突",
+      "image_url": "https://pic1.imgdb.cn/i/034GH148yTIJH89jfma4uc.jpg"
+    },
+    {
+      "id": "bite",
+      "name": "咬",
+      "description": "小白猫抱住小黑猫，轻轻咬对方，飘着爱心。",
+      "tags": [
+        "亲密",
+        "黏人",
+        "调皮"
+      ],
+      "when_to_use": "亲昵互动",
+      "image_url": "https://pic1.imgdb.cn/i/034GH14CBwkdfj8ONGOCO5.jpg"
+    },
+    {
+      "id": "cuddle",
+      "name": "贴贴",
+      "description": "小白猫和小黑猫开心地紧贴在一起。",
+      "tags": [
+        "贴贴",
+        "拥抱",
+        "开心"
+      ],
+      "when_to_use": "庆祝、亲近、安慰",
+      "image_url": "https://pic1.imgdb.cn/i/034GH14BhWtFy6hmrBb8F3.jpg"
+    },
+    {
+      "id": "comfort",
+      "name": "摸摸",
+      "description": "小黑猫摸摸正在哭的小白猫。",
+      "tags": [
+        "摸摸",
+        "安慰",
+        "鼓励",
+        "情绪低落"
+      ],
+      "when_to_use": "安慰、鼓励、情绪低落",
+      "image_url": "https://pic1.imgdb.cn/i/034GH13llkiIW0rslxJhgQ.jpg"
+    }
+  ]
+}
