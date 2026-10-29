@@ -153,10 +153,46 @@ LIBRARY_META={"ui":{"resourceUri":URI},"openai/outputTemplate":URI,"openai/widge
 SINGLE_META={"ui":{"resourceUri":SINGLE_URI},"openai/outputTemplate":SINGLE_URI,"openai/widgetAccessible":True}
 TOOLS=[
  {"name":"search_stickers","title":"检索表情包","description":"当聊天情境自然适合表情时（例如想念、撒娇、安慰、开心或晚安），可主动在后台检索并自主挑选一张；每轮最多一张，不要机械地每条消息都发表情，也不必先询问用户。返回候选元数据供 AI 挑选，本工具不会打开或渲染图库。默认流程是先搜索，再调用 send_sticker 展示最匹配的一张。只有用户明确要求浏览/挑选图库时才调用 open_sticker_library。","inputSchema":{"type":"object","properties":{"query":{"type":"string"},"category":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":120}}},"_meta":WIDGET_META},
- {"name":"send_sticker","title":"展示单张表情包","description":"把 AI 自主选中的一张表情包作为单图 MCP App 展示。适合时可主动使用，无须用户逐次点名；每次只展示一张，不打开图库、候选列表或搜索界面。通常先调用 search_stickers 选出最佳匹配，再调用此工具。它展示在 ChatGPT 回复中，不会代替用户发送原生聊天消息。","inputSchema":{"type":"object","properties":{"sticker_id":{"type":"string"}},"required":["sticker_id"]},"_meta":SINGLE_META},
+ {"name":"send_sticker","title":"发送表情包图片（手机优先）","description":"常规聊天优先调用此工具。选择一张表情并直接返回 MCP 原生图片内容，不打开 HTML、MCP App 卡片或 iframe；手机端不受单图组件启动错误影响。先使用 search_stickers 搜索，再以真实 sticker_id 调用。若 ChatGPT 客户端未将原生图片显示在对话中，请在文字回复里附上返回的 image_url 以便点击查看，不能声称图片已经可见。","inputSchema":{"type":"object","properties":{"sticker_id":{"type":"string"}},"required":["sticker_id"]}},
+ {"name":"send_sticker_native","title":"原生图片备用发送","description":"与 send_sticker 相同，直接返回图片内容，不依赖 ChatGPT 内嵌 HTML 卡片。若旧会话错误地缓存了 send_sticker 的单图展示卡片，请改用此工具测试和发送。","inputSchema":{"type":"object","properties":{"sticker_id":{"type":"string"}},"required":["sticker_id"]}},
+ {"name":"send_sticker_widget","title":"网页版单图卡片（备用）","description":"仅当用户明确希望测试网页端单图卡片时使用。手机 App 请优先用 send_sticker 或 send_sticker_native。","inputSchema":{"type":"object","properties":{"sticker_id":{"type":"string"}},"required":["sticker_id"]},"_meta":SINGLE_META},
  {"name":"list_sticker_categories","title":"表情分类","description":"列出表情类别和数量。仅在需要分类信息时调用。","inputSchema":{"type":"object","properties":{}},"_meta":WIDGET_META},
  {"name":"open_sticker_library","title":"浏览私人表情图库","description":"仅当用户明确要求查看图库、浏览全部表情或自己挑选时调用。不要在普通聊天或自主选图时调用。","inputSchema":{"type":"object","properties":{}},"_meta":LIBRARY_META}
 ]
+
+def native_sticker_bytes(row):
+    """Make a small, self-contained image for clients that cannot open MCP HTML widgets."""
+    if row["external_url"]:
+        source_url=row["external_url"]
+        parsed=urlsplit(source_url)
+        if parsed.scheme!="https" or parsed.hostname not in {"pic1.imgdb.cn","raw.githubusercontent.com"}:
+            raise ValueError("图片来源不在允许列表")
+        req=urllib_request.Request(source_url,headers={"User-Agent":"Mozilla/5.0 (compatible; XLC-Stickers/1.0)"})
+        with urllib_request.urlopen(req,timeout=12) as response:
+            final=urlsplit(response.geturl())
+            if final.scheme!="https" or final.hostname not in {"pic1.imgdb.cn","raw.githubusercontent.com"}:
+                raise ValueError("图片跳转来源不在允许列表")
+            raw=response.read(MAX+1)
+    else:
+        raw=(FILES/(row["id"]+"."+row["ext"])).read_bytes()
+    if not raw or len(raw)>MAX:
+        raise ValueError("图片文件过大或为空")
+    with Image.open(io.BytesIO(raw)) as im:
+        if im.width>3000 or im.height>3000:
+            raise ValueError("图片像素超过限制")
+        im.seek(0)
+        pic=im.convert("RGBA")
+        pic.thumbnail((360,360),Image.Resampling.LANCZOS)
+        out=io.BytesIO()
+        pic.save(out,format="PNG",optimize=True)
+        rendered=out.getvalue()
+        if len(rendered)<=450*1024:
+            return rendered,"image/png"
+        white=Image.new("RGB",pic.size,"white")
+        white.paste(pic,mask=pic.getchannel("A"))
+        out=io.BytesIO()
+        white.save(out,format="JPEG",quality=88,optimize=True)
+        return out.getvalue(),"image/jpeg"
 
 def tool_result(data):
     return {"structuredContent":data,"content":[{"type":"text","text":json.dumps(data,ensure_ascii=False)}]}
@@ -194,13 +230,25 @@ def rpc(method,params):
         return tool_result({"categories":[{"category":r["category"],"count":r["n"]} for r in rows]})
     if name=="open_sticker_library":
         return tool_result({"mode":"library"})
-    if name=="send_sticker":
+    if name in ("send_sticker","send_sticker_native","send_sticker_widget"):
         row=get(str(args.get("sticker_id","")))
-        if not row or (not row["external_url"] and not (FILES/(row["id"]+"."+row["ext"])).exists()):return {"isError":True,"content":[{"type":"text","text":"这张表情包没有可用原图，请重新搜索。"}]}
+        if not row or (not row["external_url"] and not (FILES/(row["id"]+"."+row["ext"])).exists()):
+            return {"isError":True,"content":[{"type":"text","text":"这张表情包没有可用原图，请重新搜索。"}]}
         data={"id":row["id"],"title":row["title"],"tags":row["tags"].split(),
               "category":row["category"],"image_url":signed(row,False),"alt":row["title"]}
+        if name=="send_sticker_widget":
+            return {"structuredContent":data,
+                    "content":[{"type":"text","text":json.dumps(data,ensure_ascii=False)}]}
+        try:
+            picture,mime=native_sticker_bytes(row)
+        except (ValueError,OSError,urllib_error.URLError,TimeoutError,UnidentifiedImageError):
+            return {"structuredContent":data,
+                    "content":[{"type":"text","text":"图片原文件暂时不可读取。可在当前15分钟内打开："+data["image_url"]}]}
         return {"structuredContent":data,
-                "content":[{"type":"text","text":json.dumps(data,ensure_ascii=False)}]}
+                "content":[
+                    {"type":"image","data":base64.b64encode(picture).decode("ascii"),"mimeType":mime},
+                    {"type":"text","text":"图片已作为 MCP 原生图像返回。若客户端不显示图片，可使用短期图片链接："+data["image_url"]}
+                ]}
     return {"isError":True,"content":[{"type":"text","text":"未知工具"}]}
 
 class Handler(BaseHTTPRequestHandler):
