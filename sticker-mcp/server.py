@@ -13,7 +13,7 @@ MCP_KEY=os.getenv("MCP_PATH_KEY","")
 ADMIN_KEY=os.getenv("ADMIN_KEY","")
 PUBLIC=os.getenv("PUBLIC_BASE_URL","https://xlc-stickers.onrender.com").rstrip("/")
 URI="ui://xlc-stickers/picker.html"
-SINGLE_URI="ui://xlc-stickers/single-v2.html"
+SINGLE_URI="ui://xlc-stickers/single-v3.html"
 MAX=6*1024*1024
 
 def db():
