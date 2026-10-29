@@ -9,57 +9,49 @@
 *{box-sizing:border-box}
 html,body{margin:0;min-height:0;background:transparent}
 body{display:flex;align-items:center;justify-content:flex-start;padding:8px;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",system-ui,sans-serif}
-main{display:flex;flex-direction:column;align-items:flex-start;gap:5px;min-width:0;max-width:100%}
+main{display:inline-flex;align-items:center;justify-content:flex-start;min-width:0;max-width:100%}
 img{display:block;width:auto;height:auto;max-width:min(120px,34vw);max-height:120px;object-fit:contain;border:0;border-radius:10px}
 #status{font-size:12px;color:#8b93a3;padding:6px 2px}
-#fallback-link{font-size:12px;color:#64748b;text-decoration:underline}
 [hidden]{display:none!important}
 </style>
 </head>
 <body>
 <main aria-live="polite">
 <img id="sticker" alt="" hidden>
-<div id="status">正在连接贴贴表情包…</div>
-<a id="fallback-link" hidden target="_blank" rel="noreferrer">尝试打开原图</a>
+<div id="status" hidden>这张表情暂时无法显示。</div>
 </main>
 <script>
 (function(){
   "use strict";
   const image=document.getElementById("sticker");
   const status=document.getElementById("status");
-  const link=document.getElementById("fallback-link");
-  let loaded=false;
-  function setStatus(message,url){
-    status.textContent=message;
-    status.hidden=false;
-    if(url){
-      link.href=url;
-      link.hidden=false;
-    } else {
-      link.hidden=true;
-      link.removeAttribute("href");
-    }
-  }
-  function parseTextContent(content){
-    if(!Array.isArray(content))return null;
-    for(const item of content){
-      if(item&&item.type==="text"&&typeof item.text==="string"){
-        try{return JSON.parse(item.text)}catch(e){}
-      }
-    }
-    return null;
-  }
+  let restoring=false;
+  let restoreAttempted=false;
+  function api(){return window.openai||{}}
   function unwrap(raw){
     if(!raw)return null;
     if(raw.structuredContent)return raw.structuredContent;
     if(raw.result&&raw.result.structuredContent)return raw.result.structuredContent;
+    if(raw.result&&raw.result.content)return unwrap(raw.result);
     if(raw.call_tool_result)return unwrap(raw.call_tool_result);
     if(raw.mcp_tool_result)return unwrap(raw.mcp_tool_result);
-    if(raw.result&&raw.result.content)return unwrap(raw.result);
-    const parsed=parseTextContent(raw.content);
-    if(parsed)return parsed;
-    if(typeof raw==="string"){try{return JSON.parse(raw)}catch(e){}}
+    if(Array.isArray(raw.content)){
+      for(const item of raw.content){
+        if(item&&item.type==="text"&&typeof item.text==="string"){
+          try{return JSON.parse(item.text)}catch(e){}
+        }
+      }
+    }
     return raw;
+  }
+  function outputData(){
+    const a=api();
+    return unwrap(a.toolOutput||a.tool_output||null);
+  }
+  function saveState(data){
+    const a=api();
+    if(typeof a.setWidgetState!=="function")return;
+    try{a.setWidgetState({sticker_id:data.id,title:data.title||data.alt||"表情包"})}catch(e){}
   }
   function showData(raw){
     const data=unwrap(raw);
@@ -67,77 +59,39 @@ img{display:block;width:auto;height:auto;max-width:min(120px,34vw);max-height:12
     if(typeof candidate!=="string")return false;
     let url;
     try{url=new URL(candidate)}catch(e){return false}
-    const allowed=["xlc-stickers.onrender.com","xlc-stickers-mobile-clean.onrender.com","pic1.imgdb.cn","raw.githubusercontent.com"];
-    if(url.protocol!=="https:"||!allowed.includes(url.hostname))return false;
-    image.onload=function(){
-      loaded=true;
-      image.hidden=false;
-      status.hidden=true;
-      link.hidden=true;
-    };
+    if(url.protocol!=="https:"||!["xlc-stickers.onrender.com","xlc-stickers-mobile-clean.onrender.com","pic1.imgdb.cn","raw.githubusercontent.com"].includes(url.hostname))return false;
+    image.onload=function(){image.hidden=false;status.hidden=true};
     image.onerror=function(){
-      loaded=false;
       image.hidden=true;
-      setStatus("已收到表情数据，但图片加载失败。",url.href);
+      const state=api().widgetState||{};
+      if(state.sticker_id&&!restoreAttempted)restoreFromState();
+      else status.hidden=false;
     };
     image.alt=String(data.title||data.alt||"表情包");
     image.src=url.href;
-    setStatus("正在加载表情包…");
+    saveState(data);
     return true;
   }
-  function compatibilityRender(){
-    const a=window.openai||{};
-    const candidates=[
-      a.toolOutput,a.tool_output,
-      a.toolResponseMetadata,
-      a.toolResponseMetadata&&a.toolResponseMetadata.call_tool_result,
-      a.toolResponseMetadata&&a.toolResponseMetadata.mcp_tool_result
-    ];
-    for(const candidate of candidates){if(showData(candidate))return true}
-    return false;
+  async function restoreFromState(){
+    const a=api(),state=a.widgetState||{};
+    if(restoring||restoreAttempted||!state.sticker_id||typeof a.callTool!=="function")return;
+    restoring=true;restoreAttempted=true;
+    try{
+      const result=await a.callTool("send_sticker",{sticker_id:state.sticker_id});
+      const data=unwrap(result);
+      if(!showData(data))status.hidden=false;
+    }catch(e){status.hidden=false}
+    finally{restoring=false}
   }
-  window.__stickerShowData=showData;
-  window.__stickerSetStatus=setStatus;
-  window.__stickerHasImage=()=>loaded;
-  compatibilityRender();
-  window.addEventListener("openai:tool-output",compatibilityRender);
-  window.addEventListener("openai:toolOutput",compatibilityRender);
-  window.addEventListener("openai:tool-input",()=>setStatus("正在接收表情包…"));
-  window.setTimeout(()=>{
-    if(!loaded && status.textContent==="正在连接贴贴表情包…")
-      setStatus("界面已启动，正在等待表情包数据…");
-  },1200);
+  function render(){
+    const data=outputData();
+    if(data&&showData(data))return;
+    restoreFromState();
+  }
+  render();
+  window.addEventListener("openai:tool-output",render);
+  window.addEventListener("openai:toolOutput",render);
 })();
-</script>
-<script type="module">
-import { App } from "https://esm.sh/@modelcontextprotocol/ext-apps@2.0.4?bundle";
-const setStatus=window.__stickerSetStatus||((message)=>{});
-const showData=window.__stickerShowData||(()=>false);
-const app=new App({name:"贴贴单图展示",version:"1.0.0"});
-app.ontoolinput=()=>{if(!window.__stickerHasImage?.())setStatus("正在接收表情包…")};
-app.ontoolresult=(result)=>{
-  if(!showData(result)){
-    setStatus("界面已收到工具结果，但没有识别到图片地址。");
-  }
-};
-app.onerror=(error)=>{
-  console.error("MCP Apps bridge error",error);
-  if(!window.__stickerHasImage?.())setStatus("MCP Apps 通信暂时失败；请重新连接后再试。");
-};
-app.connect().then(()=>{
-  if(!window.__stickerHasImage?.()){
-    const a=window.openai||{};
-    if(!showData(a.toolOutput||a.toolResponseMetadata||null))
-      setStatus("界面已启动，正在等待表情包数据…");
-  }
-}).catch((error)=>{
-  console.error("MCP Apps initialization error",error);
-  if(!window.__stickerHasImage?.()){
-    const a=window.openai||{};
-    if(!showData(a.toolOutput||a.toolResponseMetadata||null))
-      setStatus("MCP Apps 初始化失败；请重新连接应用后再试。");
-  }
-});
 </script>
 </body>
 </html>

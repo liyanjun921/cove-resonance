@@ -204,8 +204,8 @@ def rpc(method,params):
         resource_path=ROOT/"single.html"
         return {"contents":[{"uri":resource_uri,"mimeType":"text/html;profile=mcp-app","text":resource_path.read_text(encoding="utf-8"),
                  "_meta":{
-                     "ui":{"csp":{"resourceDomains":[PUBLIC,"https://pic1.imgdb.cn","https://raw.githubusercontent.com","https://esm.sh"],"connectDomains":[PUBLIC,"https://esm.sh"]}},
-                     "openai/widgetCSP":{"resource_domains":[PUBLIC,"https://pic1.imgdb.cn","https://raw.githubusercontent.com","https://esm.sh"],"connect_domains":[PUBLIC,"https://esm.sh"]}
+                     "ui":{"csp":{"resourceDomains":[PUBLIC,"https://pic1.imgdb.cn","https://raw.githubusercontent.com"],"connectDomains":[PUBLIC]}},
+                     "openai/widgetCSP":{"resource_domains":[PUBLIC,"https://pic1.imgdb.cn","https://raw.githubusercontent.com"],"connect_domains":[PUBLIC]}
                  }}]}
     if method!="tools/call":raise KeyError("Method not found")
     name=params.get("name");args=params.get("arguments") or {}
