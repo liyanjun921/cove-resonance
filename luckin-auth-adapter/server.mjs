@@ -7,7 +7,7 @@ import { createModernMcp } from './modern-mcp.mjs';
 const OFFICIAL_URL = 'https://gwmcp.lkcoffee.com/order/user/mcp';
 const SCOPE = 'luckin:read';
 const ORDER_SCOPE = 'luckin:order';
-const DIAGNOSTIC_VERSION = '2026-10-28.6';
+const DIAGNOSTIC_VERSION = '2026-10-29.1';
 const DIAGNOSTIC_ROUTES = new Set(['/oauth/register', '/oauth/authorize', '/oauth/token', '/mcp']);
 const DIAGNOSTIC_METHODS = new Set(['server/discover', 'initialize', 'notifications/initialized', 'tools/list', 'tools/call', 'ping']);
 const INSTRUCTIONS = '先查询真实门店、商品和规格，再 previewOrder。创建订单前必须展示准确门店、规格、数量、优惠和金额并等待用户明确确认；createOrder 还要求独立下单权限和客户端原生确认表单。预览凭据十分钟有效；超时禁止重试，先核对瑞幸订单。用户自己付款。取消订单未开放。不得编造查询、支付或订单状态。';
@@ -446,7 +446,7 @@ export function createAdapter(env = process.env, injected = {}) {
         const extensionForm = !!capabilities.extensions?.['openai/elicitation']?.form;
         const standardForm = !!capabilities.elicitation && (Object.hasOwn(capabilities.elicitation, 'form') || Object.keys(capabilities.elicitation).length === 0);
         sessions.set(sid, { owner: principal.jti, upstreamId: result.upstreamId, protocol: result.message.result.protocolVersion, tools: new Set(), exp: now() + 28800, boot,
-          formMethod: extensionForm ? 'openai/elicitation/create' : standardForm ? 'elicitation/create' : null });
+          formMethod: standardForm ? 'elicitation/create' : extensionForm ? 'openai/elicitation/create' : null });
         result.message.result.capabilities = { tools: {} };
         result.message.result.instructions = INSTRUCTIONS;
         return json(res, 200, result.message, { 'Mcp-Session-Id': sid });

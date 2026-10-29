@@ -64,7 +64,8 @@ export function createModernMcp({ upstream, discoveredTools, ensureDiscovered, o
       ready({ resultType: 'input_required', requestState: seal('order_confirmation', { nonce, boot, owner: principal.jti, receipt: hash(p.arguments.previewReceipt), exp: now() + 180 }),
         inputRequests: { [nonce]: { method: 'elicitation/create', params: {
           mode: 'form', message: summary,
-          requestedSchema: support.extended ? { type: 'object', properties: {} } : requestedSchema,
+          // Always include a complete standard schema, even with the extension.
+          requestedSchema,
           ...support.extended ? { _meta: { 'openai/elicitation': { requestedSchema } } } : {},
         } } },
       });

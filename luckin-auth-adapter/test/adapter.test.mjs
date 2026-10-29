@@ -575,7 +575,8 @@ async function modernBegin(f, access, receipt) {
   assert.equal(result.resultType, 'input_required');
   const [key] = Object.keys(result.inputRequests);
   assert.equal(result.inputRequests[key].method, 'elicitation/create');
-  assert.deepEqual(result.inputRequests[key].params.requestedSchema.properties, {});
+  assert.equal(result.inputRequests[key].params.requestedSchema.properties.confirmed.default, false);
+  assert.deepEqual(result.inputRequests[key].params.requestedSchema.required, ['confirmed']);
   assert.equal(result.inputRequests[key].params._meta['openai/elicitation'].requestedSchema.properties.confirmed.default, false);
   return { ...result, key };
 }
@@ -745,4 +746,18 @@ test('startup check reports failed Luckin authorization and does not fabricate a
   assert.equal(report.tools, undefined);
   assert.equal(f.calls.length, 1);
   assert.ok(!JSON.stringify(report).includes(ENV.LUCKIN_TOKEN));
+});
+
+// Some clients advertise both forms. Their standard schema must remain usable.
+test('dual-capability legacy clients receive a standard nonempty confirmation form', async t => {
+  const f = await fixture(t, { orderReady: true });
+  const access = await f.login(ORDER_SCOPE);
+  const session = await f.initialize(access, FORM_CAPS);
+  const p = await draft(f, access, session);
+  const pending = await beginOrder(f, access, session, p.previewReceipt);
+  assert.equal(pending.request.method, 'elicitation/create');
+  assert.deepEqual(pending.request.params.requestedSchema.required, ['confirmed']);
+  const result = await answerOrder(f, access, session, pending, { action: 'cancel' });
+  assert.equal(result.result.structuredContent.orderCreated, false);
+  assert.equal(f.calls.filter(c => c.message.params?.name === 'createOrder').length, 0);
 });
