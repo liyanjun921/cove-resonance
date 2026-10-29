@@ -12,6 +12,7 @@ MCP_KEY=os.getenv("MCP_PATH_KEY","")
 ADMIN_KEY=os.getenv("ADMIN_KEY","")
 PUBLIC=os.getenv("PUBLIC_BASE_URL","https://xlc-stickers.onrender.com").rstrip("/")
 URI="ui://xlc-stickers/picker.html"
+SINGLE_URI="ui://xlc-stickers/single.html"
 MAX=6*1024*1024
 
 def db():
@@ -75,13 +76,14 @@ def listing(query="",category="",limit=80):
        "type":r["mime"],"demo":bool(r["demo"]),"preview_url":signed(r),"image_url":signed(r,False)}
        for r in rows[:max(1,min(int(limit),120))]]
 
-META={"ui":{"resourceUri":URI},"openai/outputTemplate":URI,"openai/widgetAccessible":True}
+WIDGET_META={"openai/widgetAccessible":True}
+LIBRARY_META={"ui":{"resourceUri":URI},"openai/outputTemplate":URI,"openai/widgetAccessible":True}
+SINGLE_META={"ui":{"resourceUri":SINGLE_URI},"openai/outputTemplate":SINGLE_URI,"openai/widgetAccessible":True}
 TOOLS=[
- {"name":"search_stickers","title":"搜索表情包","description":"搜索个人表情图库，返回可选择的贴图和图片ID，不代替用户在输入框发送消息。",
-  "inputSchema":{"type":"object","properties":{"query":{"type":"string"},"category":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":120}}},"_meta":META},
- {"name":"send_sticker","title":"在当前聊天展示表情包","description":"将搜索到的表情包作为MCP工具图片结果展示在本次对话，不能代替用户点击原生消息发送键。",
-  "inputSchema":{"type":"object","properties":{"sticker_id":{"type":"string"}},"required":["sticker_id"]},"_meta":META},
- {"name":"list_sticker_categories","title":"表情分类","description":"列出表情类别和数量","inputSchema":{"type":"object","properties":{}},"_meta":META}
+ {"name":"search_stickers","title":"检索表情包","description":"在后台检索私人表情包，返回候选元数据供 AI 自主挑选；此工具不会打开或渲染图库。默认流程是先搜索，再调用 send_sticker 展示最匹配的一张。只有用户明确要求浏览/挑选图库时才调用 open_sticker_library。","inputSchema":{"type":"object","properties":{"query":{"type":"string"},"category":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":120}}},"_meta":WIDGET_META},
+ {"name":"send_sticker","title":"展示单张表情包","description":"将 AI 已选中的一张表情包作为单图 MCP App 展示；不会打开图库、候选列表或搜索界面。通常先调用 search_stickers 自主选出最佳匹配，再调用此工具。它展示在 ChatGPT 回复中，不会代替用户发送原生聊天消息。","inputSchema":{"type":"object","properties":{"sticker_id":{"type":"string"}},"required":["sticker_id"]},"_meta":SINGLE_META},
+ {"name":"list_sticker_categories","title":"表情分类","description":"列出表情类别和数量。仅在需要分类信息时调用。","inputSchema":{"type":"object","properties":{}},"_meta":WIDGET_META},
+ {"name":"open_sticker_library","title":"浏览私人表情图库","description":"仅当用户明确要求查看图库、浏览全部表情或自己挑选时调用。不要在普通聊天或自主选图时调用。","inputSchema":{"type":"object","properties":{}},"_meta":LIBRARY_META}
 ]
 
 def tool_result(data):
@@ -89,13 +91,23 @@ def tool_result(data):
 
 def rpc(method,params):
     if method=="initialize":
-        return {"protocolVersion":"2025-06-18","capabilities":{"tools":{"listChanged":False},"resources":{}},"serverInfo":{"name":"xlc-stickers","version":"0.1.0"}}
+        return {"protocolVersion":"2025-06-18","capabilities":{"tools":{"listChanged":False},"resources":{}},"serverInfo":{"name":"xlc-stickers","version":"0.2.0"}}
     if method=="ping":return {}
     if method=="tools/list":return {"tools":TOOLS}
-    if method=="resources/list":return {"resources":[{"uri":URI,"name":"表情包选择器","mimeType":"text/html;profile=mcp-app"}]}
+    if method=="resources/list":
+        return {"resources":[
+            {"uri":URI,"name":"私人表情图库（手动浏览）","mimeType":"text/html;profile=mcp-app"},
+            {"uri":SINGLE_URI,"name":"单张表情包展示","mimeType":"text/html;profile=mcp-app"}
+        ]}
     if method=="resources/read":
-        if params.get("uri")!=URI:raise KeyError("Resource not found")
-        return {"contents":[{"uri":URI,"mimeType":"text/html;profile=mcp-app","text":(ROOT/"picker.html").read_text(),
+        resource_uri=params.get("uri")
+        if resource_uri==URI:
+            resource_path=ROOT/"picker.html"
+        elif resource_uri==SINGLE_URI:
+            resource_path=ROOT/"single.html"
+        else:
+            raise KeyError("Resource not found")
+        return {"contents":[{"uri":resource_uri,"mimeType":"text/html;profile=mcp-app","text":resource_path.read_text(),
                  "_meta":{"ui":{"csp":{"resourceDomains":[PUBLIC],"connectDomains":[PUBLIC]}}}}]}
     if method!="tools/call":raise KeyError("Method not found")
     name=params.get("name");args=params.get("arguments") or {}
@@ -105,15 +117,15 @@ def rpc(method,params):
     if name=="list_sticker_categories":
         with db() as c:rows=c.execute("SELECT category,count(*) n FROM stickers GROUP BY category").fetchall()
         return tool_result({"categories":[{"category":r["category"],"count":r["n"]} for r in rows]})
+    if name=="open_sticker_library":
+        return tool_result({"mode":"library"})
     if name=="send_sticker":
         row=get(str(args.get("sticker_id","")))
         if not row:return {"isError":True,"content":[{"type":"text","text":"表情包不存在，请重新搜索。"}]}
-        with Image.open(FILES/(row["id"]+"."+row["ext"])) as im:
-            im.seek(0);pic=im.convert("RGBA");pic.thumbnail((720,720))
-            buf=io.BytesIO();pic.save(buf,"PNG",optimize=True)
-        return {"structuredContent":{"id":row["id"],"title":row["title"],"image_url":signed(row,False)},
-                "content":[{"type":"text","text":"已在工具结果中展示「"+row["title"]+"」；未作为用户消息发送。"},
-                  {"type":"image","mimeType":"image/png","data":base64.b64encode(buf.getvalue()).decode()}]}
+        return {"structuredContent":{
+                    "id":row["id"],"title":row["title"],"tags":row["tags"].split(),
+                    "category":row["category"],"image_url":signed(row,False),"alt":row["title"]},
+                "content":[{"type":"text","text":"已选中一张表情包。"}]}
     return {"isError":True,"content":[{"type":"text","text":"未知工具"}]}
 
 class Handler(BaseHTTPRequestHandler):
