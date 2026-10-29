@@ -13,7 +13,7 @@ MCP_KEY=os.getenv("MCP_PATH_KEY","")
 ADMIN_KEY=os.getenv("ADMIN_KEY","")
 PUBLIC=os.getenv("PUBLIC_BASE_URL","https://xlc-stickers.onrender.com").rstrip("/")
 URI="ui://xlc-stickers/picker.html"
-SINGLE_URI="ui://xlc-stickers/single-v4.html"
+SINGLE_URI="ui://xlc-stickers/single-v7.html"
 MAX=6*1024*1024
 
 def db():
@@ -153,7 +153,7 @@ LIBRARY_META={"ui":{"resourceUri":URI},"openai/outputTemplate":URI,"openai/widge
 SINGLE_META={"ui":{"resourceUri":SINGLE_URI},"openai/outputTemplate":SINGLE_URI,"openai/widgetAccessible":True}
 TOOLS=[
  {"name":"search_stickers","title":"检索表情包","description":"当聊天情境自然适合表情时（例如想念、撒娇、安慰、开心或晚安），可主动在后台检索并自主挑选一张；每轮最多一张，不要机械地每条消息都发表情，也不必先询问用户。返回候选元数据供 AI 挑选，本工具不会打开或渲染图库。默认流程是先搜索，再调用 send_sticker 展示最匹配的一张。只有用户明确要求浏览/挑选图库时才调用 open_sticker_library。","inputSchema":{"type":"object","properties":{"query":{"type":"string"},"category":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":120}}},"_meta":WIDGET_META},
- {"name":"send_sticker","title":"发送表情包图片（手机优先）","description":"常规聊天优先调用此工具。选择一张表情并直接返回 MCP 原生图片内容，不打开 HTML、MCP App 卡片或 iframe；手机端不受单图组件启动错误影响。先使用 search_stickers 搜索，再以真实 sticker_id 调用。若 ChatGPT 客户端未将原生图片显示在对话中，请在文字回复里附上返回的 image_url 以便点击查看，不能声称图片已经可见。","inputSchema":{"type":"object","properties":{"sticker_id":{"type":"string"}},"required":["sticker_id"]}},
+ {"name":"send_sticker","title":"发送一张表情包（MCP App）","description":"常规聊天时调用此工具展示一张表情包。它绑定 ChatGPT 内嵌 MCP App 单图界面，读取 structuredContent.image_url 并显示图片；先调用 search_stickers，再以真实 sticker_id 调用。不要把工具调用成功等同于用户已经看见图片。若当前客户端无法渲染 MCP App，可改用 send_sticker_native 作为原生图片备用。","inputSchema":{"type":"object","properties":{"sticker_id":{"type":"string"}},"required":["sticker_id"]},"_meta":SINGLE_META},
  {"name":"send_sticker_native","title":"原生图片备用发送","description":"与 send_sticker 相同，直接返回图片内容，不依赖 ChatGPT 内嵌 HTML 卡片。若旧会话错误地缓存了 send_sticker 的单图展示卡片，请改用此工具测试和发送。","inputSchema":{"type":"object","properties":{"sticker_id":{"type":"string"}},"required":["sticker_id"]}},
  {"name":"send_sticker_widget","title":"网页版单图卡片（备用）","description":"仅当用户明确希望测试网页端单图卡片时使用。手机 App 请优先用 send_sticker 或 send_sticker_native。","inputSchema":{"type":"object","properties":{"sticker_id":{"type":"string"}},"required":["sticker_id"]},"_meta":SINGLE_META},
  {"name":"list_sticker_categories","title":"表情分类","description":"列出表情类别和数量。仅在需要分类信息时调用。","inputSchema":{"type":"object","properties":{}},"_meta":WIDGET_META},
@@ -236,7 +236,7 @@ def rpc(method,params):
             return {"isError":True,"content":[{"type":"text","text":"这张表情包没有可用原图，请重新搜索。"}]}
         data={"id":row["id"],"title":row["title"],"tags":row["tags"].split(),
               "category":row["category"],"image_url":signed(row,False),"alt":row["title"]}
-        if name=="send_sticker_widget":
+        if name in ("send_sticker","send_sticker_widget"):
             return {"structuredContent":data,
                     "content":[{"type":"text","text":json.dumps(data,ensure_ascii=False)}]}
         try:
