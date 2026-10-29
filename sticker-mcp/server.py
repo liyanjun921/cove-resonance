@@ -1,6 +1,7 @@
 import base64, hashlib, hmac, io, json, os, re, sqlite3, time, uuid, zipfile
 from pathlib import Path
 from urllib.parse import urlsplit,parse_qs
+from urllib import request as urllib_request, error as urllib_error
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 from PIL import Image,ImageDraw,UnidentifiedImageError
 
@@ -144,7 +145,7 @@ def listing(query="",category="",limit=80):
     rows=[r for r in rows if not r["demo"] and (r["external_url"] or (FILES/(r["id"]+"."+r["ext"])).exists())]
     rows=[r for r in rows if (not query or query in (r["title"]+" "+r["tags"]+" "+r["category"]).lower()) and (not category or r["category"]==category)]
     return [{"id":r["id"],"title":r["title"],"tags":r["tags"].split(),"category":r["category"],
-       "type":r["mime"],"demo":bool(r["demo"]),"preview_url":(r["external_url"] or signed(r)),"image_url":(r["external_url"] or signed(r,False))}
+       "type":r["mime"],"demo":bool(r["demo"]),"preview_url":signed(r),"image_url":signed(r,False)}
        for r in rows[:max(1,min(int(limit),120))]]
 
 WIDGET_META={"openai/widgetAccessible":True}
@@ -198,7 +199,7 @@ def rpc(method,params):
         if not row or (not row["external_url"] and not (FILES/(row["id"]+"."+row["ext"])).exists()):return {"isError":True,"content":[{"type":"text","text":"这张表情包没有可用原图，请重新搜索。"}]}
         return {"structuredContent":{
                     "id":row["id"],"title":row["title"],"tags":row["tags"].split(),
-                    "category":row["category"],"image_url":(row["external_url"] or signed(row,False)),"alt":row["title"]},
+                    "category":row["category"],"image_url":signed(row,False),"alt":row["title"]},
                 "content":[{"type":"text","text":"已选中一张表情包。"}]}
     return {"isError":True,"content":[{"type":"text","text":"未知工具"}]}
 
@@ -238,8 +239,26 @@ class Handler(BaseHTTPRequestHandler):
             expected=hmac.new(MCP_KEY.encode(),f'{sid}:{exp}:{variant}'.encode(),hashlib.sha256).hexdigest()
             if not (int(time.time())<=exp<=int(time.time())+960 and hmac.compare_digest(provided,expected)):
                 return self.respond(403,{"error":"invalid_or_expired_token"})
-            raw=(FILES/(sid+"."+row["ext"])).read_bytes()
-            mime=row["mime"]
+            if row["external_url"]:
+                try:
+                    source_url=urlsplit(row["external_url"])
+                    if source_url.scheme!="https" or source_url.hostname not in {"pic1.imgdb.cn","raw.githubusercontent.com"}:
+                        return self.respond(502,{"error":"upstream_host_not_allowed"})
+                    request=urllib_request.Request(row["external_url"],headers={"User-Agent":"Mozilla/5.0 (compatible; XLC-Stickers/1.0)"})
+                    with urllib_request.urlopen(request,timeout=10) as response:
+                        final_url=urlsplit(response.geturl())
+                        if final_url.scheme!="https" or final_url.hostname not in {"pic1.imgdb.cn","raw.githubusercontent.com"}:
+                            return self.respond(502,{"error":"upstream_redirect_not_allowed"})
+                        raw=response.read(MAX+1)
+                        upstream_mime=response.headers.get_content_type()
+                    if len(raw)>MAX:
+                        return self.respond(413,{"error":"upstream_image_too_large"})
+                    mime=upstream_mime if upstream_mime.startswith("image/") else row["mime"]
+                except (urllib_error.URLError,TimeoutError,OSError,ValueError):
+                    return self.respond(502,{"error":"upstream_image_unavailable"})
+            else:
+                raw=(FILES/(sid+"."+row["ext"])).read_bytes()
+                mime=row["mime"]
             if variant=="thumb":
                 with Image.open(io.BytesIO(raw)) as im:
                     im.seek(0);pic=im.convert("RGBA");pic.thumbnail((320,320));out=io.BytesIO();pic.save(out,"PNG")
