@@ -1,4 +1,4 @@
-import base64, hashlib, hmac, io, json, os, re, sqlite3, time, uuid
+import base64, hashlib, hmac, io, json, os, re, sqlite3, time, uuid, zipfile
 from pathlib import Path
 from urllib.parse import urlsplit,parse_qs
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
@@ -91,6 +91,42 @@ def add_image(raw,title,tags,category,demo=False):
         c.execute("INSERT INTO stickers (id,title,tags,category,ext,mime,sha,created,demo,external_url) VALUES(?,?,?,?,?,?,?,?,?,?)",
           (sid,str(title)[:65],str(tags)[:240],str(category)[:36],ext,mime,sha,int(time.time()),int(demo),None))
         return sid
+
+def import_sticker_zip(raw):
+    if len(raw) > 10 * 1024 * 1024:
+        raise ValueError("ZIP 不能超过 10MB")
+    with zipfile.ZipFile(io.BytesIO(raw)) as z:
+        info={i.filename:i for i in z.infolist() if not i.is_dir()}
+        if len(info)>80 or "manifest.json" not in info:
+            raise ValueError("ZIP 需要包含 manifest.json，且总文件数不超过 80")
+        if info["manifest.json"].file_size>64*1024:
+            raise ValueError("清单文件过大")
+        manifest=json.loads(z.read("manifest.json").decode("utf-8"))
+        items=manifest.get("stickers",[])
+        if not isinstance(items,list) or not (1<=len(items)<=50):
+            raise ValueError("表情数量必须为 1-50 张")
+        total=0
+        for item in items:
+            if not isinstance(item,dict):
+                raise ValueError("表情记录格式不正确")
+            name=item.get("file","")
+            entry=info.get(name)
+            if not isinstance(name,str) or not re.fullmatch(r"images/[A-Za-z0-9_.-]{1,120}\.(?:jpg|jpeg|png|webp|gif)",name,re.I) or not entry:
+                raise ValueError("ZIP 清单图片路径不合法")
+            if entry.file_size>MAX:
+                raise ValueError("单张图片不得超过 6MB")
+            total+=entry.file_size
+        if total>60*1024*1024:
+            raise ValueError("解压总大小超过 60MB")
+        output=[]
+        for item in items:
+            name=item["file"]
+            tags=item.get("tags",[])
+            if isinstance(tags,list):
+                tags=" ".join(str(x) for x in tags)
+            sid=add_image(z.read(name),item.get("title") or Path(name).stem,tags,item.get("category") or "默认")
+            output.append({"id":sid,"title":str(item.get("title") or Path(name).stem)})
+        return {"ok":True,"imported":len(output),"stickers":output}
 
 def get(sid):
     with db() as c:return c.execute("SELECT * FROM stickers WHERE id=?",(sid,)).fetchone()
@@ -234,6 +270,17 @@ class Handler(BaseHTTPRequestHandler):
                 sid=add_image(raw,inp.get("title") or Path(inp.get("filename","表情")).stem,inp.get("tags",""),inp.get("category","默认"))
                 return self.respond(200,{"ok":True,"id":sid})
             except Exception as e:return self.respond(400,{"error":"invalid_upload","message":str(e)[:100]})
+        if u.path=="/admin/import-zip":
+            if not self.is_admin():return self.respond(401,{"error":"unauthorized"})
+            try:
+                inp=self.body()
+                raw=base64.b64decode(inp["data_base64"],validate=True)
+                result=import_sticker_zip(raw)
+                return self.respond(200,result)
+            except (ValueError,KeyError,TypeError,zipfile.BadZipFile,UnicodeError,json.JSONDecodeError) as e:
+                return self.respond(400,{"error":"invalid_zip","message":str(e)[:120]})
+            except Exception:
+                return self.respond(500,{"error":"import_failed"})
         if u.path=="/admin/delete":
             if not self.is_admin():return self.respond(401,{"error":"unauthorized"})
             try:
