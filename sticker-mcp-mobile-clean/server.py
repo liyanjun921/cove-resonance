@@ -13,8 +13,7 @@ MCP_KEY=os.getenv("MCP_PATH_KEY","")
 ADMIN_KEY=os.getenv("ADMIN_KEY","")
 PUBLIC=os.getenv("PUBLIC_BASE_URL","https://xlc-stickers-mobile-clean.onrender.com").rstrip("/")
 URI="ui://xlc-stickers/picker.html"
-SINGLE_URI="ui://xlc-stickers/single-v4.html"
-SINGLE_URI="ui://xlc-stickers/single-v4.html"
+SINGLE_URI="ui://xlc-stickers/single-v5.html"
 MAX=6*1024*1024
 
 def db():
@@ -205,8 +204,8 @@ def rpc(method,params):
         resource_path=ROOT/"single.html"
         return {"contents":[{"uri":resource_uri,"mimeType":"text/html;profile=mcp-app","text":resource_path.read_text(encoding="utf-8"),
                  "_meta":{
-                     "ui":{"csp":{"resourceDomains":[PUBLIC,"https://pic1.imgdb.cn","https://raw.githubusercontent.com"],"connectDomains":[PUBLIC]}},
-                     "openai/widgetCSP":{"resource_domains":[PUBLIC,"https://pic1.imgdb.cn","https://raw.githubusercontent.com"],"connect_domains":[PUBLIC]}
+                     "ui":{"csp":{"resourceDomains":[PUBLIC,"https://pic1.imgdb.cn","https://raw.githubusercontent.com","https://esm.sh"],"connectDomains":[PUBLIC,"https://esm.sh"]}},
+                     "openai/widgetCSP":{"resource_domains":[PUBLIC,"https://pic1.imgdb.cn","https://raw.githubusercontent.com","https://esm.sh"],"connect_domains":[PUBLIC,"https://esm.sh"]}
                  }}]}
     if method!="tools/call":raise KeyError("Method not found")
     name=params.get("name");args=params.get("arguments") or {}
