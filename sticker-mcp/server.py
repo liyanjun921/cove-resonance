@@ -80,8 +80,8 @@ WIDGET_META={"openai/widgetAccessible":True}
 LIBRARY_META={"ui":{"resourceUri":URI},"openai/outputTemplate":URI,"openai/widgetAccessible":True}
 SINGLE_META={"ui":{"resourceUri":SINGLE_URI},"openai/outputTemplate":SINGLE_URI,"openai/widgetAccessible":True}
 TOOLS=[
- {"name":"search_stickers","title":"检索表情包","description":"在后台检索私人表情包，返回候选元数据供 AI 自主挑选；此工具不会打开或渲染图库。默认流程是先搜索，再调用 send_sticker 展示最匹配的一张。只有用户明确要求浏览/挑选图库时才调用 open_sticker_library。","inputSchema":{"type":"object","properties":{"query":{"type":"string"},"category":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":120}}},"_meta":WIDGET_META},
- {"name":"send_sticker","title":"展示单张表情包","description":"将 AI 已选中的一张表情包作为单图 MCP App 展示；不会打开图库、候选列表或搜索界面。通常先调用 search_stickers 自主选出最佳匹配，再调用此工具。它展示在 ChatGPT 回复中，不会代替用户发送原生聊天消息。","inputSchema":{"type":"object","properties":{"sticker_id":{"type":"string"}},"required":["sticker_id"]},"_meta":SINGLE_META},
+ {"name":"search_stickers","title":"检索表情包","description":"当聊天情境自然适合表情时（例如想念、撒娇、安慰、开心或晚安），可主动在后台检索并自主挑选一张；每轮最多一张，不要机械地每条消息都发表情，也不必先询问用户。返回候选元数据供 AI 挑选，本工具不会打开或渲染图库。默认流程是先搜索，再调用 send_sticker 展示最匹配的一张。只有用户明确要求浏览/挑选图库时才调用 open_sticker_library。","inputSchema":{"type":"object","properties":{"query":{"type":"string"},"category":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":120}}},"_meta":WIDGET_META},
+ {"name":"send_sticker","title":"展示单张表情包","description":"把 AI 自主选中的一张表情包作为单图 MCP App 展示。适合时可主动使用，无须用户逐次点名；每次只展示一张，不打开图库、候选列表或搜索界面。通常先调用 search_stickers 选出最佳匹配，再调用此工具。它展示在 ChatGPT 回复中，不会代替用户发送原生聊天消息。","inputSchema":{"type":"object","properties":{"sticker_id":{"type":"string"}},"required":["sticker_id"]},"_meta":SINGLE_META},
  {"name":"list_sticker_categories","title":"表情分类","description":"列出表情类别和数量。仅在需要分类信息时调用。","inputSchema":{"type":"object","properties":{}},"_meta":WIDGET_META},
  {"name":"open_sticker_library","title":"浏览私人表情图库","description":"仅当用户明确要求查看图库、浏览全部表情或自己挑选时调用。不要在普通聊天或自主选图时调用。","inputSchema":{"type":"object","properties":{}},"_meta":LIBRARY_META}
 ]
