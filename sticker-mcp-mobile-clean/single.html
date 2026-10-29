@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>贴贴 · 单张表情</title>
+<style>
+:root{color-scheme:light}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:0;background:transparent}
+body{display:flex;align-items:center;justify-content:flex-start;padding:8px;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",system-ui,sans-serif}
+main{display:inline-flex;align-items:center;justify-content:flex-start;min-width:0;max-width:100%}
+img{display:block;width:auto;height:auto;max-width:min(280px,72vw);max-height:280px;object-fit:contain;border:0;border-radius:10px}
+#status{font-size:12px;color:#8b93a3;padding:6px 2px}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<main aria-live="polite">
+<img id="sticker" alt="" hidden>
+<div id="status" hidden>这张表情暂时无法显示。</div>
+</main>
+<script>
+(function(){
+  "use strict";
+  const image=document.getElementById("sticker");
+  const status=document.getElementById("status");
+  let restoring=false;
+  let restoreAttempted=false;
+  function api(){return window.openai||{}}
+  function unwrap(raw){
+    if(!raw)return null;
+    if(raw.structuredContent)return raw.structuredContent;
+    if(raw.result&&raw.result.structuredContent)return raw.result.structuredContent;
+    if(raw.result&&raw.result.content)return unwrap(raw.result);
+    return raw;
+  }
+  function outputData(){
+    const a=api();
+    return unwrap(a.toolOutput||a.tool_output||null);
+  }
+  function saveState(data){
+    const a=api();
+    if(typeof a.setWidgetState!=="function")return;
+    try{a.setWidgetState({sticker_id:data.id,title:data.title||data.alt||"表情包"})}catch(e){}
+  }
+  function showData(data){
+    const candidate=data&&(data.image_url||data.imageUrl||data.url);
+    if(typeof candidate!=="string")return false;
+    let url;
+    try{url=new URL(candidate)}catch(e){return false}
+    if(url.protocol!=="https:"||!["xlc-stickers.onrender.com","xlc-stickers-mobile-clean.onrender.com","pic1.imgdb.cn","raw.githubusercontent.com"].includes(url.hostname))return false;
+    image.onload=function(){image.hidden=false;status.hidden=true};
+    image.onerror=function(){
+      image.hidden=true;
+      const state=api().widgetState||{};
+      if(state.sticker_id&&!restoreAttempted)restoreFromState();
+      else status.hidden=false;
+    };
+    image.alt=String(data.title||data.alt||"表情包");
+    image.src=url.href;
+    saveState(data);
+    return true;
+  }
+  async function restoreFromState(){
+    const a=api(),state=a.widgetState||{};
+    if(restoring||restoreAttempted||!state.sticker_id||typeof a.callTool!=="function")return;
+    restoring=true;restoreAttempted=true;
+    try{
+      const result=await a.callTool("send_sticker",{sticker_id:state.sticker_id});
+      const data=unwrap(result);
+      if(!showData(data))status.hidden=false;
+    }catch(e){status.hidden=false}
+    finally{restoring=false}
+  }
+  function render(){
+    const data=outputData();
+    if(data&&showData(data))return;
+    restoreFromState();
+  }
+  render();
+  window.addEventListener("openai:tool-output",render);
+  window.addEventListener("openai:toolOutput",render);
+})();
+</script>
+</body>
+</html>

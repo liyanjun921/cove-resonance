@@ -11,8 +11,9 @@ FILES=DATA/"files"
 DB=DATA/"stickers.sqlite"
 MCP_KEY=os.getenv("MCP_PATH_KEY","")
 ADMIN_KEY=os.getenv("ADMIN_KEY","")
-PUBLIC=os.getenv("PUBLIC_BASE_URL","https://xlc-stickers.onrender.com").rstrip("/")
+PUBLIC=os.getenv("PUBLIC_BASE_URL","https://xlc-stickers-mobile-clean.onrender.com").rstrip("/")
 URI="ui://xlc-stickers/picker.html"
+SINGLE_URI="ui://xlc-stickers/single-v4.html"
 SINGLE_URI="ui://xlc-stickers/single-v4.html"
 MAX=6*1024*1024
 
@@ -148,11 +149,12 @@ def listing(query="",category="",limit=80):
        "type":r["mime"],"demo":bool(r["demo"]),"preview_url":signed(r),"image_url":signed(r,False)}
        for r in rows[:max(1,min(int(limit),120))]]
 
+SINGLE_META={"ui":{"resourceUri":SINGLE_URI},"openai/outputTemplate":SINGLE_URI,"openai/widgetAccessible":True}
 TOOLS=[
- {"name":"search_stickers","title":"搜索表情包","description":"按语境搜索私人表情包，只返回候选信息，不渲染网页组件。","inputSchema":{"type":"object","properties":{"query":{"type":"string"},"category":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":120}}}},
- {"name":"send_sticker","title":"发送表情包图片","description":"返回一张经过压缩的原生图片内容，不使用 HTML、iframe、MCP App 或 outputTemplate。手机端优先。必须先用 search_stickers 取得真实 sticker_id。","inputSchema":{"type":"object","properties":{"sticker_id":{"type":"string"}},"required":["sticker_id"]}},
+ {"name":"search_stickers","title":"搜索表情包","description":"按聊天语境搜索私人表情包，返回候选信息，不渲染界面。常规流程先搜索，再调用 send_sticker 展示最匹配的一张。","inputSchema":{"type":"object","properties":{"query":{"type":"string"},"category":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":120}}}},
+ {"name":"send_sticker","title":"展示一张表情包（MCP App）","description":"常规聊天时调用此工具展示一张表情包。它绑定 ChatGPT 内嵌 MCP App 单图界面，读取 structuredContent.image_url 并显示图片；先调用 search_stickers，再以真实 sticker_id 调用。不要把工具调用成功等同于用户已经看见图片。","inputSchema":{"type":"object","properties":{"sticker_id":{"type":"string"}},"required":["sticker_id"]},"_meta":SINGLE_META},
  {"name":"list_sticker_categories","title":"表情分类","description":"列出表情分类和数量。","inputSchema":{"type":"object","properties":{}}},
- {"name":"open_sticker_library","title":"查看私人表情图库","description":"返回图库表情的元数据列表，不打开网页组件。","inputSchema":{"type":"object","properties":{}}}
+ {"name":"open_sticker_library","title":"查看私人表情图库","description":"返回图库表情的元数据列表。常规聊天只展示一张表情，不要调用本工具。","inputSchema":{"type":"object","properties":{"query":{"type":"string"},"category":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":120}}}}
 ]
 def native_sticker_bytes(row):
     """Make a small, self-contained image for clients that cannot open MCP HTML widgets."""
@@ -193,11 +195,19 @@ def tool_result(data):
 
 def rpc(method,params):
     if method=="initialize":
-        return {"protocolVersion":"2025-06-18","capabilities":{"tools":{"listChanged":False}},"serverInfo":{"name":"xlc-stickers-mobile-clean","version":"1.0.0"}}
+        return {"protocolVersion":"2025-06-18","capabilities":{"tools":{"listChanged":False},"resources":{}},"serverInfo":{"name":"xlc-stickers-mobile-clean","version":"1.1.0"}}
     if method=="ping":return {}
     if method=="tools/list":return {"tools":TOOLS}
-    if method=="resources/list":return {"resources":[]}
-    if method=="resources/read":raise KeyError("No UI resources are exposed by this server")
+    if method=="resources/list":return {"resources":[{"uri":SINGLE_URI,"name":"单张表情包展示","mimeType":"text/html;profile=mcp-app"}]}
+    if method=="resources/read":
+        resource_uri=params.get("uri")
+        if resource_uri!=SINGLE_URI:raise KeyError("Resource not found")
+        resource_path=ROOT/"single.html"
+        return {"contents":[{"uri":resource_uri,"mimeType":"text/html;profile=mcp-app","text":resource_path.read_text(encoding="utf-8"),
+                 "_meta":{
+                     "ui":{"csp":{"resourceDomains":[PUBLIC,"https://pic1.imgdb.cn","https://raw.githubusercontent.com"],"connectDomains":[PUBLIC]}},
+                     "openai/widgetCSP":{"resource_domains":[PUBLIC,"https://pic1.imgdb.cn","https://raw.githubusercontent.com"],"connect_domains":[PUBLIC]}
+                 }}]}
     if method!="tools/call":raise KeyError("Method not found")
     name=params.get("name");args=params.get("arguments") or {}
     if name=="search_stickers":
@@ -215,16 +225,9 @@ def rpc(method,params):
             return {"isError":True,"content":[{"type":"text","text":"这张表情包没有可用原图，请重新搜索。"}]}
         data={"id":row["id"],"title":row["title"],"tags":row["tags"].split(),
               "category":row["category"],"image_url":signed(row,False),"alt":row["title"]}
-        try:
-            picture,mime=native_sticker_bytes(row)
-        except (ValueError,OSError,urllib_error.URLError,TimeoutError,UnidentifiedImageError):
-            return {"structuredContent":data,
-                    "content":[{"type":"text","text":"图片原文件暂时不可读取。可在当前15分钟内打开："+data["image_url"]}]}
+        # The normal send_sticker path renders the embedded MCP App single-image UI.
         return {"structuredContent":data,
-                "content":[
-                    {"type":"image","data":base64.b64encode(picture).decode("ascii"),"mimeType":mime},
-                    {"type":"text","text":"图片已作为 MCP 原生图像返回。若客户端不显示图片，可使用短期图片链接："+data["image_url"]}
-                ]}
+                "content":[{"type":"text","text":json.dumps(data,ensure_ascii=False)}]}
     return {"isError":True,"content":[{"type":"text","text":"未知工具"}]}
 
 class Handler(BaseHTTPRequestHandler):
@@ -342,5 +345,5 @@ class Handler(BaseHTTPRequestHandler):
 if __name__=="__main__":
     if not (len(MCP_KEY)>=32 and len(ADMIN_KEY)>=32):raise SystemExit("Missing independently generated MCP_PATH_KEY and ADMIN_KEY")
     setup()
-    print("Sticker Mobile Clean MCP started; native images only; no MCP App UI resources",flush=True)
+    print("Sticker Mobile Clean MCP started; MCP App single-image UI enabled",flush=True)
     ThreadingHTTPServer(("0.0.0.0",int(os.getenv("PORT","10000"))),Handler).serve_forever()
