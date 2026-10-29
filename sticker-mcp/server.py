@@ -105,7 +105,7 @@ def listing(query="",category="",limit=80):
     query=str(query).lower().strip()[:80]
     category=str(category).strip()[:36]
     with db() as c:rows=c.execute("SELECT * FROM stickers ORDER BY demo ASC,created DESC").fetchall()
-    rows=[r for r in rows if (r["external_url"] or (FILES/(r["id"]+"."+r["ext"])).exists())]
+    rows=[r for r in rows if not r["demo"] and (r["external_url"] or (FILES/(r["id"]+"."+r["ext"])).exists())]
     rows=[r for r in rows if (not query or query in (r["title"]+" "+r["tags"]+" "+r["category"]).lower()) and (not category or r["category"]==category)]
     return [{"id":r["id"],"title":r["title"],"tags":r["tags"].split(),"category":r["category"],
        "type":r["mime"],"demo":bool(r["demo"]),"preview_url":(r["external_url"] or signed(r)),"image_url":(r["external_url"] or signed(r,False))}
