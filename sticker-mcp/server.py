@@ -12,7 +12,7 @@ MCP_KEY=os.getenv("MCP_PATH_KEY","")
 ADMIN_KEY=os.getenv("ADMIN_KEY","")
 PUBLIC=os.getenv("PUBLIC_BASE_URL","https://xlc-stickers.onrender.com").rstrip("/")
 URI="ui://xlc-stickers/picker.html"
-SINGLE_URI="ui://xlc-stickers/single.html"
+SINGLE_URI="ui://xlc-stickers/single-v2.html"
 MAX=6*1024*1024
 
 def db():
@@ -179,7 +179,10 @@ def rpc(method,params):
         else:
             raise KeyError("Resource not found")
         return {"contents":[{"uri":resource_uri,"mimeType":"text/html;profile=mcp-app","text":resource_path.read_text(),
-                 "_meta":{"ui":{"csp":{"resourceDomains":[PUBLIC,"https://pic1.imgdb.cn","https://raw.githubusercontent.com"],"connectDomains":[PUBLIC]}}}}]}
+                 "_meta":{
+                     "ui":{"csp":{"resourceDomains":[PUBLIC,"https://pic1.imgdb.cn","https://raw.githubusercontent.com"],"connectDomains":[PUBLIC]}},
+                     "openai/widgetCSP":{"resource_domains":[PUBLIC,"https://pic1.imgdb.cn","https://raw.githubusercontent.com"],"connect_domains":[PUBLIC]}
+                 }}]}
     if method!="tools/call":raise KeyError("Method not found")
     name=params.get("name");args=params.get("arguments") or {}
     if name=="search_stickers":
