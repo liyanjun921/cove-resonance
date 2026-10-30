@@ -22,6 +22,7 @@ export function buildListenerHtml(enableGeneralTest = false): string {
   <div class="title">Cove Bridge</div>
   <div id="status" class="status">已挂载，尚未监听。</div>
   <button id="toggle" type="button" disabled>正在连接…</button>
+  ${enableGeneralTest ? '<section aria-label="电影共看"><div class="title">同帧电影共看 · 前台实验</div><p class="status">保持影院与本聊天打开。每五分钟请求当前聊天读取同帧；暂停或结束观影时请点停止。平台可能要求确认，锁屏后不能保证运行。</p><button id="cinema-start" type="button" disabled>开始电影共看（5分钟）</button><button id="cinema-test" type="button" disabled>测试一次续看</button><button id="cinema-stop" type="button" disabled>停止电影共看</button><div id="cinema-status" class="status" role="status">未开始 · 05:00</div></section>' : ''}
   ${enableGeneralTest ? '<div id="host-error" class="status" role="alert"></div>' : ''}
   ${enableGeneralTest ? '<button id="general-test-send" type="button" disabled>发送通用测试消息</button><button id="general-test-check" type="button" disabled>检查测试回复</button><div id="general-test-result" class="status" aria-live="polite"></div>' : ''}
 </main>
@@ -196,7 +197,11 @@ export function buildListenerHtml(enableGeneralTest = false): string {
     toggleEl.disabled = false;
     toggleEl.textContent = '开始监听';
     setStatus('已挂载，尚未监听。');
-    if (generalTestEnabled) document.getElementById('general-test-send').disabled = false;
+    if (generalTestEnabled) {
+      document.getElementById('general-test-send').disabled = false;
+      document.getElementById('cinema-start').disabled = false;
+      document.getElementById('cinema-test').disabled = false;
+    }
   }
 
   async function callTool(name, args) {
@@ -434,6 +439,97 @@ export function buildListenerHtml(enableGeneralTest = false): string {
     if (listening) stopListening();
     else startListening();
   });
+
+  // This is a fixed, local scheduling hint, not an ingress event or a data
+  // transport. No movie content, ChatGPT replies, or private credentials are
+  // sent to the public test backend. The current model uses the private cinema
+  // connector after the host accepts the hint. Existing queue/ACK paths stay
+  // unchanged and cannot run concurrently with this card's cinema timer.
+  if (generalTestEnabled) {
+    const start = document.getElementById('cinema-start');
+    const test = document.getElementById('cinema-test');
+    const stop = document.getElementById('cinema-stop');
+    const state = document.getElementById('cinema-status');
+    const INTERVAL = 300000;
+    let active = false, pendingSend = false, nextAt = 0, clock = 0, submitted = 0;
+    const prompt = '【电影共看定时请求；不是林言手动发言】观众在旧监听卡片主动开启了电影共看。沿用当前聊天的身份与上下文，先用私人同帧插件调用 cinema_status；仅在房间在线、共享开启且正在播放时，调用 cinema_read_screen，带上已有 sinceMessageId 和 sinceTimeMs，保留 nextMessageId 与 nextMediaMs。依据实际抽帧和已播放字幕自然回复，并用 cinema_post_message 写回影院。暂停、结束或离线时不编造画面、不发观影评论。不要重开监听卡片。此信号没有外部回复路由，不调用 cove_bridge_reply，不把聊天内容或电影内容发送到公共消息桥。';
+    function controls() {
+      start.disabled = active || pendingSend || !bridgeReady;
+      test.disabled = active || pendingSend || !bridgeReady;
+      stop.disabled = !active && !pendingSend;
+      toggleEl.disabled = active || pendingSend || !bridgeReady;
+      document.getElementById('general-test-send').disabled = active || pendingSend || !bridgeReady;
+    }
+    function halt(message) {
+      active = false;
+      window.clearInterval(clock);
+      clock = 0;
+      controls();
+      state.textContent = message || '电影共看已停止';
+    }
+    async function sendOnce(single) {
+      if (pendingSend || !bridgeReady) return;
+      pendingSend = true;
+      controls();
+      state.textContent = '正在请求当前聊天续看；等待平台确认，不会重复提交。';
+      try {
+        // Like the working old card, keep this pending until the host actually
+        // resolves the human decision. A timeout must never cause redispatch.
+        const answer = await requestHumanDecision('ui/message', {
+          role: 'user', content: [{ type: 'text', text: prompt }]
+        });
+        const outcome = answer && (answer.outcome || answer.status);
+        if (answer && (answer.isError || ['dismissed', 'cancelled', 'canceled', 'rejected'].includes(outcome))) {
+          throw new Error('平台取消了本次续看请求');
+        }
+        submitted++;
+        if (single || !active) halt('请求已提交 ' + submitted + ' 次；请核对聊天是否实际回复。单次测试不会开启循环。');
+        else {
+          nextAt = Date.now() + INTERVAL;
+          state.textContent = '请求已提交 ' + submitted + ' 次（不等于已回复）；下一次 05:00。';
+        }
+      } catch (error) {
+        halt('续看未发送，已停止且不重试：' + (error.message || String(error)));
+      } finally {
+        pendingSend = false;
+        controls();
+      }
+    }
+    function tick() {
+      if (!active || pendingSend) return;
+      if (document.hidden) { nextAt = Date.now() + INTERVAL; return; }
+      const left = Math.max(0, Math.ceil((nextAt - Date.now()) / 1000));
+      state.textContent = '电影共看前台计时 ' + String(Math.floor(left / 60)).padStart(2, '0')
+        + ':' + String(left % 60).padStart(2, '0') + ' · 已提交 ' + submitted + ' 次；实际回复请以聊天为准。';
+      if (!left) void sendOnce(false);
+    }
+    function prepare() {
+      if (!bridgeReady || pendingSend) return false;
+      if (inFlight) { state.textContent = '旧事件仍在处理，请先完成或取消那次发送，再开启电影共看。'; return false; }
+      stopListening();
+      return true;
+    }
+    start.addEventListener('click', () => {
+      if (!prepare()) return;
+      active = true;
+      nextAt = Date.now() + INTERVAL;
+      controls();
+      tick();
+      clock = window.setInterval(tick, 1000);
+    });
+    test.addEventListener('click', () => {
+      if (prepare()) void sendOnce(true);
+    });
+    stop.addEventListener('click', () => halt(pendingSend
+      ? '后续计时已停止；已交给平台的本次确认仍需你在聊天中处理。' : '电影共看已停止'));
+    document.addEventListener?.('visibilitychange', () => {
+      if (active) {
+        nextAt = Date.now() + INTERVAL;
+        if (document.hidden) state.textContent = '卡片在后台，已暂停；回来后重新计时五分钟。';
+      }
+    });
+    window.addEventListener('pagehide', () => halt('卡片已离开，电影共看已停止'));
+  }
 
   if (generalTestEnabled) {
     const sendButton = document.getElementById('general-test-send');

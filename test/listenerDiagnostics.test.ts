@@ -5,7 +5,7 @@ import { buildListenerHtml } from "../src/listener-html.js";
 
 test("generic Listener keeps the host rejection visible after polling and never redispatches it", async () => {
   const elements = new Map<string, { textContent: string; disabled: boolean; click?: () => void }>();
-  for (const id of ["status", "toggle", "host-error", "general-test-send", "general-test-check", "general-test-result"]) {
+  for (const id of ["status", "toggle", "host-error", "general-test-send", "general-test-check", "general-test-result", "cinema-start", "cinema-test", "cinema-stop", "cinema-status"]) {
     const element = { textContent: "", disabled: false, click: undefined as (() => void) | undefined };
     elements.set(id, element);
   }
@@ -35,7 +35,7 @@ test("generic Listener keeps the host rejection visible after polling and never 
   };
   const window = {
     parent,
-    addEventListener(_name: string, handler: typeof receive) { receive = handler; },
+    addEventListener(name: string, handler: typeof receive) { if (name === "message") receive = handler; },
     setTimeout(callback: () => void, ms: number) { if (ms === 0) immediate.push(callback); return 1; },
     setInterval() { return 1; },
     clearInterval() {},
