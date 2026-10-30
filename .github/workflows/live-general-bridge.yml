@@ -1,0 +1,103 @@
+name: Live General Bridge smoke
+
+on:
+  push:
+    branches:
+      - feat/general-message-bridge-v1
+    paths:
+      - .github/workflows/live-general-bridge.yml
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Check isolated Render endpoint without private credentials
+        env:
+          GENERAL_BRIDGE_URL: https://xlc-general-bridge-lyj.onrender.com
+        run: |
+          python3 - <<'PY'
+          import json, os, time, urllib.request, urllib.error
+          base = os.environ["GENERAL_BRIDGE_URL"]
+          def call(path, method="GET", body=None):
+              data = json.dumps(body).encode() if body is not None else None
+              headers = {"Accept": "application/json, text/event-stream"}
+              if data is not None: headers["Content-Type"] = "application/json"
+              request = urllib.request.Request(base + path, data=data, headers=headers, method=method)
+              for attempt in range(4):
+                  try:
+                      with urllib.request.urlopen(request, timeout=110) as resp:
+                          return resp.status, json.loads(resp.read())
+                  except urllib.error.HTTPError as exc:
+                      return exc.code, json.loads(exc.read())
+                  except (TimeoutError, urllib.error.URLError) as exc:
+                      if attempt == 3: raise
+                      time.sleep(10)
+          def rpc(i, method, params={}):
+              status, obj = call("/mcp/bridge", "POST", {"jsonrpc":"2.0","id":i,"method":method,"params":params})
+              assert status == 200 and "result" in obj, (status, obj)
+              return obj["result"]
+          status, root = call("/")
+          assert status == 200 and root["ok"] == True, root
+          info = rpc(1, "initialize", {"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"bridge-live-smoke","version":"1.0"}})
+          assert info["serverInfo"]["name"] == "cove-resonance-bridge"
+          names = {t["name"] for t in rpc(2, "tools/list")["tools"]}
+          for required in ("open_cove_bridge", "cove_bridge_sync", "cove_bridge_reply", "cove_bridge_test_event", "cove_bridge_test_status"):
+              assert required in names, (required, names)
+          assert not any(n.startswith("netease_") for n in names), names
+          resources = {r["uri"] for r in rpc(3, "resources/list")["resources"]}
+          assert "ui://widget/xlc-general-bridge.html" in resources, resources
+          resource=rpc(4, "resources/read", {"uri":"ui://widget/xlc-general-bridge.html"})
+          html=resource["contents"][0]["text"]
+          assert "general-test-send" in html and "ui/update-model-context" in html and "ui/message" in html
+          session=rpc(5, "tools/call", {"name":"cove_bridge_listener_session","arguments":{}})
+          stream=session["structuredContent"]["streamUrl"]
+          assert stream==base+"/listener/events", "Listener SSE origin does not match this isolated service"
+          for disallowed in ("/mcp", "/mcp/music"):
+              status, result=call(disallowed,"POST",{"jsonrpc":"2.0","id":9,"method":"tools/list","params":{}})
+              assert status==404 and result.get("error")=="profile_not_available", (disallowed,status,result)
+          for path,method,body in [
+              ("/events","POST",{"source":"test.general-bridge","text":"Access denied smoke test"}),
+              ("/external/replies?eventId=missing","GET",None),
+              ("/external/activity","POST",{}),
+          ]:
+              status, result = call(path, method, body)
+              assert status == 401, (path,status,result)
+          print("LIVE PASS: isolated MCP/UI/SSE, no music endpoints, protected ingress/replies/activity")
+          PY
+
+      - name: Exercise live fixed-content generic reply round-trip
+        env:
+          GENERAL_BRIDGE_URL: https://xlc-general-bridge-lyj.onrender.com
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request
+          base = os.environ["GENERAL_BRIDGE_URL"]
+          def call(path, method="GET", args=None):
+              req = urllib.request.Request(
+                  base + path,
+                  method=method,
+                  headers={"Content-Type":"application/json","Accept":"application/json, text/event-stream"},
+                  data=json.dumps(args).encode() if args is not None else None)
+              with urllib.request.urlopen(req, timeout=100) as response:
+                  return json.load(response)
+          def tool(i, name, args=None):
+              payload={"jsonrpc":"2.0","id":i,"method":"tools/call","params":{"name":name,"arguments":args or {}}}
+              result=call("/mcp/bridge","POST",payload)
+              assert "result" in result and "error" not in result, result
+              return result["result"]["structuredContent"]
+          status=call("/")
+          assert status["queue"]["pending"] == 0 and status["queue"]["reserved"] == 0, "Live queue not empty: do not intercept user's message"
+          generated=tool(10,"cove_bridge_test_event")
+          assert generated["queued"] and generated["source"]=="test.general-bridge", generated
+          event_id=generated["eventId"]
+          got=tool(11,"cove_bridge_wait",{"timeoutSeconds":2})
+          assert got["hasEvent"] and got["eventId"]==event_id and got["replyRoute"]=="external.inbox",got
+          ack=tool(12,"cove_bridge_wait_ack",{"eventId":event_id})
+          assert ack["acknowledged"],ack
+          result=tool(13,"cove_bridge_reply",{"eventId":event_id,"messages":["XLC live generic reply verified; no NetEase message sent."]})
+          assert result["completed"] and result["route"]=="external.inbox",result
+          finished=tool(14,"cove_bridge_test_status",{"eventId":event_id})
+          assert finished["completed"] and len(finished["messages"])==1,finished
+          print("LIVE ROUNDTRIP PASS: synthetic non-NetEase event -> MCP -> generic inbox response; official ChatGPT host/UI not exercised")
+          PY

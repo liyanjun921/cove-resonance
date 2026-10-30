@@ -52,7 +52,7 @@ export function registerBridgeWaitTool(
         stateKey: z.string().optional(),
         visibleText: z.string().optional(),
         modelContext: z.string().optional(),
-        replyRoute: z.literal("netease.chatroom").optional(),
+        replyRoute: z.enum(["netease.chatroom", "external.inbox"]).optional(),
         replyPolicy: z.enum(["required", "optional"]).optional(),
         createdAt: z.string().optional(),
       },

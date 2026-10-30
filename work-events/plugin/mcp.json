@@ -1,0 +1,20 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "xlc-work-events": {
+      "type": "streamable-http",
+      "url": "https://xlc-general-bridge-lyj.onrender.com/mcp/work",
+      "extensions": {
+        "com.openai": {
+          "auth": {
+            "type": "oauth",
+            "client": { "mode": "dcr" },
+            "authorizationServerBase": "https://kmligdmvjenjjlvrpqha.supabase.co/auth/v1",
+            "resource": "https://xlc-general-bridge-lyj.onrender.com/mcp/work",
+            "defaultScopes": ["email"]
+          }
+        }
+      }
+    }
+  }
+}

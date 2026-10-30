@@ -4,6 +4,7 @@ COPY package*.json ./
 RUN npm install
 COPY tsconfig.json ./
 COPY src ./src
+COPY work-events/consent.ts ./work-events/consent.ts
 RUN npm run build
 
 FROM node:22-slim

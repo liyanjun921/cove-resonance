@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { listenerWakeHub } from "../listenerWake.js";
+import { externalReplyInbox } from "../externalReplyInbox.js";
 import type { TogetherWorker } from "../netease/togetherWorker.js";
 import type { InMemoryEventQueue } from "../queue.js";
 import { normalizeReplyBubbles } from "../replyBubbles.js";
@@ -17,7 +18,7 @@ export function registerBridgeTools(
     "cove_bridge_reply",
     {
       title: "Reply through Cove Bridge",
-      description: "Deliver the user-facing reply for the active Cove Bridge event back through its recorded reply route. For replyPolicy=required, call this exactly once before completing the turn. eventId is optional because the Bridge binds to the active required event and corrects stale ids. For normal conversation, messages[] should contain 2-5 short natural bubbles; a single bubble is only for a genuinely brief reply. Do not pack multiple sentences into one long bubble and do not add filler just to increase the count. The Bridge will also split an obviously long single bubble as a fallback. Do not call netease_together_send_message directly for routed replies.",
+      description: "Deliver the user-facing reply for the active Bridge event via its bound NetEase or generic inbox route. Never invent a route. For replyPolicy=required, call this exactly once before completing the turn. eventId is optional because the Bridge binds to the active required event and corrects stale ids. For normal conversation, messages[] should contain 2-5 short natural bubbles; a single bubble is only for a genuinely brief reply. Do not pack multiple sentences into one long bubble and do not add filler just to increase the count. The Bridge will also split an obviously long single bubble as a fallback. Do not call netease_together_send_message directly for routed replies.",
       inputSchema: {
         eventId: z.string().trim().min(1).optional(),
         messages: z.array(z.string().trim().min(1).max(500)).min(1).max(5),
@@ -25,7 +26,7 @@ export function registerBridgeTools(
       outputSchema: {
         ok: z.literal(true),
         eventId: z.string(),
-        route: z.literal("netease.chatroom"),
+        route: z.enum(["netease.chatroom", "external.inbox"]),
         sentCount: z.number(),
         completed: z.boolean(),
         deduplicated: z.boolean(),
@@ -55,7 +56,7 @@ export function registerBridgeTools(
         );
       }
       if (!event.replyRoute) throw new Error(`Event has no reply route: ${resolvedEventId}`);
-      if (event.replyRoute !== "netease.chatroom") {
+      if (event.replyRoute !== "netease.chatroom" && event.replyRoute !== "external.inbox") {
         throw new Error(`Unsupported reply route: ${event.replyRoute}`);
       }
 
@@ -65,12 +66,18 @@ export function registerBridgeTools(
         .digest("hex");
       const claim = queue.claimReply(resolvedEventId, fingerprint);
 
+      if (event.replyRoute === "external.inbox"
+        && claim.state === "already_completed" && claim.sentCount === 0) {
+        throw new Error("Event ended without delivering a reply: the host rejected or dismissed the message. "
+          + "No reply was written to the external inbox; this terminal event will not be resent.");
+      }
+
       if (claim.state === "already_completed" || claim.state === "in_progress") {
         return {
           structuredContent: {
             ok: true as const,
             eventId: resolvedEventId,
-            route: "netease.chatroom" as const,
+            route: event.replyRoute,
             sentCount: claim.sentCount,
             completed: claim.state === "already_completed",
             deduplicated: true,
@@ -87,13 +94,19 @@ export function registerBridgeTools(
       try {
         let sentCount = claim.sentCount;
         for (let index = sentCount; index < normalized.length; index += 1) {
-          await togetherWorker.sendChatRoomText(normalized[index]);
+          if (event.replyRoute === "netease.chatroom") {
+            await togetherWorker.sendChatRoomText(normalized[index]);
+          } else {
+            // Generic messages never leave through NetEase.
+            externalReplyInbox.append(resolvedEventId, normalized[index]);
+          }
           sentCount = queue.markReplyMessageSent(resolvedEventId, fingerprint);
           if (index < normalized.length - 1) {
             await new Promise<void>((resolve) => setTimeout(resolve, 350));
           }
         }
         queue.markReplyCompleted(resolvedEventId, fingerprint);
+        if (event.replyRoute === "external.inbox") externalReplyInbox.complete(resolvedEventId);
         listenerWakeHub.wake("reply-completed");
         console.log(
           `Cove Bridge reply delivered: eventId=${resolvedEventId} route=${event.replyRoute} messages=${normalized.length}`,
@@ -102,7 +115,7 @@ export function registerBridgeTools(
           structuredContent: {
             ok: true as const,
             eventId: resolvedEventId,
-            route: "netease.chatroom" as const,
+            route: event.replyRoute,
             sentCount,
             completed: true,
             deduplicated: false,
