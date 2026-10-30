@@ -9,36 +9,45 @@ import { buildListenerHtml } from "../listener-html.js";
 import { listenerWakeHub } from "../listenerWake.js";
 
 export const RESOURCE_URI = "ui://widget/cove-bridge.html";
+export const CINEMA_RESOURCE_URI = "ui://widget/xlc-general-cinema-v2.html";
+const LEGACY_GENERIC_URI = "ui://widget/xlc-general-bridge.html";
 let lastGenericTestAt = 0;
 const PUBLIC_ORIGIN = process.env.BRIDGE_PUBLIC_ORIGIN?.trim()
   || "http://localhost:" + (process.env.PORT ?? "8787");
 
 export function registerBridgeApp(server: McpServer, testQueue?: InMemoryEventQueue): void {
   const isGeneric = Boolean(testQueue);
-  const resourceUri = isGeneric ? "ui://widget/xlc-general-bridge.html" : RESOURCE_URI;
+  const resourceUri = isGeneric ? CINEMA_RESOURCE_URI : RESOURCE_URI;
+  const templateMeta = { ui: { resourceUri }, "ui/resourceUri": resourceUri, "openai/outputTemplate": resourceUri };
   const html = buildListenerHtml(isGeneric);
 
-  registerAppResource(
-    server,
-    "cove-bridge-widget",
-    resourceUri,
-    {},
-    async () => ({
-      contents: [{
-        uri: resourceUri,
-        mimeType: RESOURCE_MIME_TYPE,
-        text: html,
-        _meta: {
-          ui: {
-            domain: PUBLIC_ORIGIN,
-            prefersBorder: false,
-            csp: { connectDomains: [PUBLIC_ORIGIN], resourceDomains: [] },
+  // Keep old conversation bindings readable, but new renders must point to
+  // a fresh cache key. Resource metadata contains UI policy, not tool metadata.
+  for (const uri of isGeneric ? [resourceUri, LEGACY_GENERIC_URI] : [resourceUri]) {
+    registerAppResource(
+      server,
+      uri === LEGACY_GENERIC_URI ? "cove-bridge-legacy-widget" : "cove-bridge-widget",
+      uri,
+      {},
+      async () => ({
+        contents: [{
+          uri,
+          mimeType: RESOURCE_MIME_TYPE,
+          text: html,
+          _meta: {
+            ui: {
+              domain: PUBLIC_ORIGIN,
+              prefersBorder: false,
+              csp: { connectDomains: [PUBLIC_ORIGIN], resourceDomains: [] },
+            },
+            "openai/widgetDescription": isGeneric
+              ? "同帧电影共看 v2。默认未启动；请点击测试一次续看验证当前聊天。"
+              : "A manually controlled listener for Cove Resonance events.",
           },
-          "openai/widgetDescription": "A manually controlled listener for Cove Resonance events.",
-        },
-      }],
-    }),
-  );
+        }],
+      }),
+    );
+  }
 
   registerAppTool(
     server,
@@ -47,20 +56,20 @@ export function registerBridgeApp(server: McpServer, testQueue?: InMemoryEventQu
       title: "Open Cove Resonance",
       description: "Mount the Cove Resonance listener component in an idle state. Only use when the user explicitly asks to open it. Opening does not start listening; the user starts listening from the component.",
       inputSchema: {},
-      outputSchema: { ready: z.boolean(), listening: z.boolean() },
+      outputSchema: { ready: z.boolean(), listening: z.boolean(), componentVersion: z.string().optional() },
       annotations: {
         readOnlyHint: true,
         destructiveHint: false,
         openWorldHint: false,
       },
-      _meta: {
-        ui: { resourceUri },
-        "openai/outputTemplate": resourceUri,
-      },
+      _meta: templateMeta,
     },
     async () => ({
-      structuredContent: { ready: true, listening: false },
-      content: [{ type: "text", text: "Cove Resonance mounted in an idle state. Listening has not started." }],
+      structuredContent: { ready: true, listening: false, ...(isGeneric ? { componentVersion: "cinema-2" } : {}) },
+      ...(isGeneric ? { _meta: templateMeta } : {}),
+      content: [{ type: "text", text: isGeneric
+        ? "已请求同帧电影共看 v2 卡片，尚未开始。界面必须出现“电影共看 v2”和“测试一次续看”按钮才算新版实际显示；工具返回不代表显示成功。只打开本卡片，不要再调用 cinema_open_listener 或 cinema_open_listener_basic。私人同帧插件仅用于 cinema_status、cinema_read_screen 与 cinema_post_message。"
+        : "Cove Resonance mounted in an idle state. Listening has not started." }],
     }),
   );
 

@@ -22,7 +22,7 @@ export function buildListenerHtml(enableGeneralTest = false): string {
   <div class="title">Cove Bridge</div>
   <div id="status" class="status">已挂载，尚未监听。</div>
   <button id="toggle" type="button" disabled>正在连接…</button>
-  ${enableGeneralTest ? '<section aria-label="电影共看"><div class="title">同帧电影共看 · 前台实验</div><p class="status">保持影院与本聊天打开。每五分钟请求当前聊天读取同帧；暂停或结束观影时请点停止。平台可能要求确认，锁屏后不能保证运行。</p><button id="cinema-start" type="button" disabled>开始电影共看（5分钟）</button><button id="cinema-test" type="button" disabled>测试一次续看</button><button id="cinema-stop" type="button" disabled>停止电影共看</button><div id="cinema-status" class="status" role="status">未开始 · 05:00</div></section>' : ''}
+  ${enableGeneralTest ? '<section aria-label="电影共看"><div class="title">同帧电影共看 v2 · 前台实验</div><p class="status">保持影院与本聊天打开。每五分钟请求当前聊天读取同帧；暂停或结束观影时请点停止。平台可能要求确认，锁屏后不能保证运行。</p><button id="cinema-start" type="button" disabled>开始电影共看（5分钟）</button><button id="cinema-test" type="button" disabled>测试一次续看</button><button id="cinema-stop" type="button" disabled>停止电影共看</button><div id="cinema-status" class="status" role="status">未开始 · 05:00</div></section>' : ''}
   ${enableGeneralTest ? '<div id="host-error" class="status" role="alert"></div>' : ''}
   ${enableGeneralTest ? '<button id="general-test-send" type="button" disabled>发送通用测试消息</button><button id="general-test-check" type="button" disabled>检查测试回复</button><div id="general-test-result" class="status" aria-live="polite"></div>' : ''}
 </main>

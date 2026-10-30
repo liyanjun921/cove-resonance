@@ -114,3 +114,34 @@ test("dedicated bridge endpoint exposes Listener and reply without music account
     assert.equal(names.has("netease_together_now"), false);
   });
 });
+
+test("generic movie render overrides cached descriptors and keeps the legacy URI readable", async () => {
+  await withServer(async (base) => {
+    async function call(method: string, params: object) {
+      const r = await fetch(base + '/mcp/bridge', { method: 'POST',
+        headers: {'content-type':'application/json',accept:'application/json, text/event-stream'},
+        body: JSON.stringify({jsonrpc:'2.0',id:99,method,params}) });
+      assert.equal(r.status,200);
+      return (await r.json() as {result:any}).result;
+    }
+    const list = await call('tools/list',{});
+    const descriptor = list.tools.find((t:any)=>t.name==='open_cove_bridge');
+    const uri = descriptor._meta.ui.resourceUri;
+    assert.equal(uri,'ui://widget/xlc-general-cinema-v2.html');
+    const rendered = await call('tools/call',{name:'open_cove_bridge',arguments:{}});
+    assert.equal(rendered.structuredContent.componentVersion,'cinema-2');
+    assert.equal(rendered.structuredContent.listening,false);
+    assert.equal(rendered._meta.ui.resourceUri,uri);
+    assert.equal(rendered._meta['openai/outputTemplate'],uri);
+    assert.equal(rendered._meta['ui/resourceUri'],uri);
+    for(const requested of [uri,'ui://widget/xlc-general-bridge.html']) {
+      const read = await call('resources/read',{uri:requested});
+      const c = read.contents[0];
+      assert.equal(c.uri,requested);
+      assert.equal(c.mimeType,'text/html;profile=mcp-app');
+      assert.match(c.text,/同帧电影共看 v2/);
+      for(const id of ['cinema-start','cinema-test','cinema-stop']) assert.ok(c.text.includes('id="'+id+'"'));
+      assert.equal(c._meta.ui.resourceUri,undefined);
+    }
+  });
+});
