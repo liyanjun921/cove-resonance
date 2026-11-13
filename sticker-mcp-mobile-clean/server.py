@@ -12,6 +12,7 @@ DB=DATA/"stickers.sqlite"
 MCP_KEY=os.getenv("MCP_PATH_KEY","")
 ADMIN_KEY=os.getenv("ADMIN_KEY","")
 PUBLIC=os.getenv("PUBLIC_BASE_URL","https://xlc-stickers-mobile-clean.onrender.com").rstrip("/")
+CLAUDE_PATH="/claude-mcp"
 URI="ui://xlc-stickers/picker.html"
 SINGLE_URI="ui://xlc-stickers/single-v6.html"
 MAX=6*1024*1024
@@ -156,6 +157,23 @@ TOOLS=[
  {"name":"list_sticker_categories","title":"表情分类","description":"列出表情分类和数量。","inputSchema":{"type":"object","properties":{}}},
  {"name":"open_sticker_library","title":"查看私人表情图库","description":"返回图库表情的元数据列表。常规聊天只展示一张表情，不要调用本工具。","inputSchema":{"type":"object","properties":{"query":{"type":"string"},"category":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":120}}}}
 ]
+# The Claude endpoint is deliberately restricted to read-only tools. All
+# sticker image files and catalog metadata are already public in GitHub.
+CLAUDE_TOOL_NAMES=frozenset({"search_stickers","send_sticker_image","list_sticker_categories","open_sticker_library"})
+
+def claude_rpc(method,params):
+    if method=="initialize":
+        return {"protocolVersion":"2025-06-18",
+                "capabilities":{"tools":{"listChanged":False}},
+                "serverInfo":{"name":"xlc-stickers-claude","version":"1.2.0"}}
+    if method=="tools/list":
+        return {"tools":[tool for tool in TOOLS if tool["name"] in CLAUDE_TOOL_NAMES]}
+    if method=="resources/list":
+        return {"resources":[]}
+    if method=="tools/call" and params.get("name") not in CLAUDE_TOOL_NAMES:
+        raise KeyError("Tool not available on this read-only endpoint")
+    return rpc(method,params)
+
 def native_sticker_bytes(row):
     """Make a small, self-contained image for clients that cannot open MCP HTML widgets."""
     if row["external_url"]:
@@ -300,18 +318,26 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(200);self.send_header("Content-Type",mime);self.common()
             self.send_header("Access-Control-Allow-Origin","*");self.send_header("Content-Length",str(len(raw)))
             self.end_headers();return self.wfile.write(raw)
+        if u.path==CLAUDE_PATH:
+            # Streamable HTTP may decline a standalone GET event stream with 405.
+            self.send_response(405);self.send_header("Allow","POST")
+            self.send_header("Content-Length","0");self.common();self.end_headers();return
         if u.path.startswith("/mcp/"):
             self.send_response(405);self.send_header("Allow","POST");self.end_headers();return
         return self.respond(404,{"error":"not_found"})
     def do_POST(self):
         u=urlsplit(self.path)
-        if self.is_mcp(u.path):
+        is_claude=(u.path==CLAUDE_PATH)
+        if self.is_mcp(u.path) or is_claude:
             try:
                 r=self.body()
                 if r.get("jsonrpc")!="2.0":raise ValueError("Invalid JSON-RPC")
                 if "id" not in r:
                     self.send_response(202);self.send_header("Content-Length","0");self.end_headers();return
-                try:val=rpc(r.get("method"),r.get("params") or {})
+                if is_claude:
+                    print("Claude MCP request:",str(r.get("method",""))[:40],flush=True)
+                try:
+                    val=claude_rpc(r.get("method"),r.get("params") or {}) if is_claude else rpc(r.get("method"),r.get("params") or {})
                 except KeyError as e:
                     return self.respond(200,{"jsonrpc":"2.0","id":r["id"],"error":{"code":-32601,"message":str(e)}})
                 return self.respond(200,{"jsonrpc":"2.0","id":r["id"],"result":val})
