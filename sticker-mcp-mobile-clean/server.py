@@ -150,8 +150,9 @@ def listing(query="",category="",limit=80):
 
 SINGLE_META={"ui":{"resourceUri":SINGLE_URI},"openai/outputTemplate":SINGLE_URI,"openai/widgetAccessible":True}
 TOOLS=[
- {"name":"search_stickers","title":"搜索表情包","description":"按聊天语境搜索私人表情包，返回候选信息，不渲染界面。常规流程先搜索，再调用 send_sticker 展示最匹配的一张。","inputSchema":{"type":"object","properties":{"query":{"type":"string"},"category":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":120}}}},
+ {"name":"search_stickers","title":"搜索表情包","description":"按聊天语境搜索私人表情包，返回候选信息，不渲染界面。常规流程先搜索；ChatGPT 用 send_sticker，Claude 则优先用 send_sticker_image 直接展示最匹配的一张。","inputSchema":{"type":"object","properties":{"query":{"type":"string"},"category":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":120}}}},
  {"name":"send_sticker","title":"展示一张表情包（MCP App）","description":"常规聊天时调用此工具展示一张表情包。它绑定 ChatGPT 内嵌 MCP App 单图界面，读取 structuredContent.image_url 并显示图片；先调用 search_stickers，再以真实 sticker_id 调用。不要把工具调用成功等同于用户已经看见图片。","inputSchema":{"type":"object","properties":{"sticker_id":{"type":"string"}},"required":["sticker_id"]},"_meta":SINGLE_META},
+ {"name":"send_sticker_image","title":"直接发送图片表情包（适合 Claude）","description":"用于 Claude 等不一定能加载 ChatGPT MCP App 界面的客户端。先通过 search_stickers 取得真实 sticker_id，再调用本工具返回标准 MCP image 内容（base64 图片），让 Claude 可以直接查看图片。用户要求发表情时，在 Claude 优先使用此工具。每轮通常最多一张。","inputSchema":{"type":"object","properties":{"sticker_id":{"type":"string"}},"required":["sticker_id"]}},
  {"name":"list_sticker_categories","title":"表情分类","description":"列出表情分类和数量。","inputSchema":{"type":"object","properties":{}}},
  {"name":"open_sticker_library","title":"查看私人表情图库","description":"返回图库表情的元数据列表。常规聊天只展示一张表情，不要调用本工具。","inputSchema":{"type":"object","properties":{"query":{"type":"string"},"category":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":120}}}}
 ]
@@ -218,13 +219,20 @@ def rpc(method,params):
     if name=="open_sticker_library":
         results=listing(args.get("query",""),args.get("category",""),args.get("limit",120))
         return tool_result({"stickers":results,"count":len(results)})
-    if name=="send_sticker":
+    if name in ("send_sticker","send_sticker_image"):
         row=get(str(args.get("sticker_id","")))
         if not row or (not row["external_url"] and not (FILES/(row["id"]+"."+row["ext"])).exists()):
             return {"isError":True,"content":[{"type":"text","text":"这张表情包没有可用原图，请重新搜索。"}]}
         data={"id":row["id"],"title":row["title"],"tags":row["tags"].split(),
               "category":row["category"],"image_url":signed(row,False),"alt":row["title"]}
-        # The normal send_sticker path renders the embedded MCP App single-image UI.
+        if name=="send_sticker_image":
+            try:
+                picture,mime=native_sticker_bytes(row)
+            except (OSError,ValueError,urllib_error.URLError,TimeoutError):
+                return {"isError":True,"content":[{"type":"text","text":"表情图片暂时无法加载，请换一张或稍后重试。"}]}
+            return {"content":[{"type":"text","text":row["title"]},
+                               {"type":"image","data":base64.b64encode(picture).decode("ascii"),"mimeType":mime}]}
+        # ChatGPT-only widget path remains unchanged.
         return {"structuredContent":data,
                 "content":[{"type":"text","text":json.dumps(data,ensure_ascii=False)}]}
     return {"isError":True,"content":[{"type":"text","text":"未知工具"}]}
