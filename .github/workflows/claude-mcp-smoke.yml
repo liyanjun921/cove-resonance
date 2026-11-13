@@ -1,0 +1,87 @@
+name: Claude MCP handshake smoke test
+on:
+  push:
+    branches:
+      - feat/sticker-mobile-clean
+    paths:
+      - "sticker-mcp-mobile-clean/server.py"
+      - ".github/workflows/claude-mcp-smoke.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  remote-handshake:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - name: Check public read-only Claude MCP endpoint
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import base64
+          import json
+          import time
+          import urllib.error
+          import urllib.request
+
+          url = "https://xlc-stickers-mobile-clean.onrender.com/claude-mcp"
+          headers = {
+              "Content-Type": "application/json",
+              "Accept": "application/json, text/event-stream",
+              "MCP-Protocol-Version": "2025-06-18",
+          }
+
+          def call(method, params=None):
+              payload = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params or {}}
+              req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers)
+              with urllib.request.urlopen(req, timeout=35) as response:
+                  assert response.status == 200, response.status
+                  assert "application/json" in response.headers["Content-Type"]
+                  body = json.loads(response.read())
+              if "error" in body:
+                  raise AssertionError(f"{method} returned {body['error']}")
+              return body["result"]
+
+          for attempt in range(18):
+              try:
+                  result = call("initialize", {
+                      "protocolVersion": "2025-06-18",
+                      "capabilities": {},
+                      "clientInfo": {"name": "github-actions-sticker-smoke", "version": "1.0.0"},
+                  })
+                  break
+              except (urllib.error.URLError, TimeoutError, OSError) as exc:
+                  if attempt == 17:
+                      raise
+                  print(f"Waiting for Render: {exc}")
+                  time.sleep(10)
+
+          assert result["protocolVersion"] == "2025-06-18", result
+          assert "tools" in result["capabilities"], result
+          assert result["serverInfo"]["name"] == "xlc-stickers-claude", result
+
+          available = call("tools/list")["tools"]
+          names = set(tool["name"] for tool in available)
+          assert names == {"search_stickers", "send_sticker_image",
+                           "list_sticker_categories", "open_sticker_library"}, names
+
+          found = call("tools/call", {
+              "name": "search_stickers",
+              "arguments": {"query": "找老婆", "limit": 5},
+          })
+          records = found.get("structuredContent", {}).get("stickers", [])
+          assert any(item["id"] == "tt001" for item in records), records
+
+          image_result = call("tools/call", {
+              "name": "send_sticker_image",
+              "arguments": {"sticker_id": "tt002"},
+          })
+          images = [x for x in image_result["content"] if x["type"] == "image"]
+          assert len(images) == 1, image_result
+          img = images[0]
+          assert img["mimeType"] in ("image/png", "image/jpeg"), img["mimeType"]
+          raw = base64.b64decode(img["data"], validate=True)
+          assert len(raw) > 500, len(raw)
+          print(f"PASS: Claude MCP initialize, tools/list, search (tt001), and native image (tt002: {len(raw)} bytes)")
+          PY
