@@ -1,5 +1,5 @@
 /** Work MCP Events adapter. Kept separate from the legacy Listener and music queue. */
-import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, createPublicKey, randomBytes, timingSafeEqual, verify as verifySignature } from "node:crypto";
 import { lookup } from "node:dns/promises";
 import { request as httpsRequest } from "node:https";
 import { isIP } from "node:net";
@@ -152,6 +152,29 @@ export function signature(secret: string, id: string, timestamp: number, body: s
   return "v1," + createHmac("sha256", key).update(`${id}.${timestamp}.${body}`).digest("base64");
 }
 
+export function verifyGardenEventSignature(
+  publicKey: string,
+  eventId: string,
+  timestamp: number,
+  text: string,
+  signatureValue: string,
+  now = Date.now(),
+): boolean {
+  if (!/^[A-Za-z0-9_-]{43}$/.test(publicKey) ||
+      !/^[A-Za-z0-9_-]{86}$/.test(signatureValue) ||
+      !Number.isSafeInteger(timestamp) ||
+      Math.abs(now - timestamp * 1000) > 5 * 60_000) return false;
+  try {
+    const rawKey = Buffer.from(publicKey, "base64url");
+    const rawSignature = Buffer.from(signatureValue, "base64url");
+    if (rawKey.length !== 32 || rawSignature.length !== 64) return false;
+    const key = createPublicKey({ key: { kty: "OKP", crv: "Ed25519", x: publicKey }, format: "jwk" });
+    return verifySignature(null, Buffer.from(JSON.stringify([eventId, timestamp, text])), key, rawSignature);
+  } catch {
+    return false;
+  }
+}
+
 function publicIp(address: string): boolean {
   if (isIP(address) === 4) {
     const [a, b] = address.split(".").map(Number);
@@ -287,6 +310,35 @@ async function dispatch(): Promise<{ delivered: number; retried: number }> {
     if (status >= 200 && status < 300) delivered++; else retried++;
   }
   return { delivered, retried };
+}
+
+export async function handleGardenWorkEvent(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  if (req.method !== "POST") { json(res, 405, { error: "method_not_allowed" }); return; }
+  if (!store.configured) { json(res, 503, { error: "work_event_store_unconfigured" }); return; }
+  const publicKey = process.env.WORK_EVENTS_GARDEN_PUBLIC_KEY ?? "";
+  if (!publicKey) { json(res, 503, { error: "garden_public_key_unconfigured" }); return; }
+  try {
+    const input = await readBody(req);
+    if (!object(input) || typeof input.eventId !== "string" || !input.eventId || input.eventId.length > 200 ||
+        !Number.isSafeInteger(input.timestamp) ||
+        typeof input.text !== "string" || !input.text || input.text.length > 4000 ||
+        typeof input.signature !== "string") {
+      json(res, 400, { error: "invalid_event" }); return;
+    }
+    const timestamp = input.timestamp as number;
+    if (!verifyGardenEventSignature(publicKey, input.eventId, timestamp, input.text, input.signature)) {
+      json(res, 401, { error: "invalid_signature" }); return;
+    }
+    const count = await enqueue("general.message", input.eventId, {
+      event_id: input.eventId, source: "galatea.garden.bridge", text: input.text,
+    });
+    const delivery = await dispatch();
+    json(res, 202, { accepted: true, eventId: input.eventId, subscriptions: count, ...delivery });
+  } catch (error) {
+    console.error("Garden Work event request failed", error instanceof Error ? error.message : "unknown");
+    json(res, error instanceof SyntaxError ? 400 : error instanceof Error && error.message === "request_too_large" ? 413 : 500,
+      { error: "garden_event_request_failed" });
+  }
 }
 
 export async function handleWorkEvents(req: IncomingMessage, res: ServerResponse, path: string): Promise<void> {
