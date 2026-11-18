@@ -28,6 +28,18 @@ export class InMemoryEventQueue {
   private readonly stateRows = new Map<string, StoredBridgeEvent>();
   private readonly statePendingByKey = new Map<string, string>();
 
+  constructor(private readonly now: () => number = Date.now) {}
+
+  pruneExpiredPendingStates(at = this.now()): void {
+    for (const [key, eventId] of this.statePendingByKey) {
+      const row = this.stateRows.get(eventId);
+      if (row?.status !== "pending" || !row.event.expiresAt) continue;
+      if (Date.parse(row.event.expiresAt) > at) continue;
+      this.stateRows.delete(eventId);
+      this.statePendingByKey.delete(key);
+    }
+  }
+
   enqueue(event: BridgeEvent): boolean {
     if (this.getRow(event.id)) return false;
 
@@ -54,6 +66,11 @@ export class InMemoryEventQueue {
     return this.getRow(eventId)?.event ?? null;
   }
 
+  hasEndedWithoutReply(eventId: string): boolean {
+    const reply = this.getRow(eventId)?.reply;
+    return Boolean(reply?.completed && reply.sentCount === 0);
+  }
+
   getOutstandingRequiredReplyEvent(filter?: (event: BridgeEvent) => boolean): BridgeEvent | null {
     for (const row of this.conversationRows.values()) {
       if (filter && !filter(row.event)) continue;
@@ -65,6 +82,7 @@ export class InMemoryEventQueue {
   }
 
   reserveNext(filter?: (event: BridgeEvent) => boolean): BridgeEvent | null {
+    this.pruneExpiredPendingStates();
     if (this.getOutstandingRequiredReplyEvent(filter)) return null;
 
     for (const row of this.conversationRows.values()) {

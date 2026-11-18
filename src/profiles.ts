@@ -1,12 +1,24 @@
-export type McpProfile = "default" | "music";
+export type McpProfile = "default" | "music" | "bridge";
 
 export const MCP_PATHS = new Map<string, McpProfile>([
   ["/mcp", "default"],
   ["/mcp/music", "music"],
+  ["/mcp/bridge", "bridge"],
 ]);
 
 export function acceptsProfileSource(profile: McpProfile, source: string): boolean {
   if (profile === "music") return source.startsWith("netease.");
+  if (profile === "bridge") {
+    if (source.startsWith("netease.")) return false;
+    // An unauthenticated, isolated test connector must not disclose real
+    // external events to unknown public MCP callers.
+    if (process.env.BRIDGE_ISOLATED_MODE === "true" && !process.env.BRIDGE_MCP_TOKEN) {
+      // This second source is emitted only by the server's fixed-content
+      // Listener wake scheduler. HTTP ingress cannot write arbitrary wakes.
+      return source === "test.general-bridge" || source === "wake.listener-test";
+    }
+    return true;
+  }
   return true;
 }
 
@@ -14,7 +26,9 @@ export function buildProfileInstructions(profile: McpProfile): string {
   return [
     profile === "music"
       ? "Cove Resonance exposes a Music-scoped MCP view for NetEase Listen Together events and tools."
-      : "Cove Resonance routes external events into this conversation while preserving the legacy all-in-one MCP surface.",
+      : profile === "bridge"
+        ? "Cove Resonance General Bridge handles non-NetEase events and wake triggers. For routed external messages, call cove_bridge_reply exactly once to write response bubbles to the authenticated external inbox. Do not send generic messages to NetEase. The Widget Listener must be started manually by the human."
+        : "Cove Resonance routes external events into this conversation while preserving the legacy all-in-one MCP surface.",
     "SOURCE DISTINCTION: a bridged NetEase ChatRoom message is authored inside NetEase Cloud Music, not in the ChatGPT window. It is identified by MESSAGE ORIGIN: NetEase ChatRoom, source=netease.chatroom, or the visible prefix 【网易云聊天室】.",
     "A normal user message typed directly in the official ChatGPT conversation has no Cove Resonance NetEase origin marker. Do not route ordinary ChatGPT-window replies to NetEase unless the current turn is explicitly a bridged NetEase event.",
     "NetEase playback/music_changed state events are system state, not direct user chat. Do not confuse 【网易云一起听状态】 with a user-authored ChatRoom message.",

@@ -9,6 +9,7 @@ type RpcResult = {
 
 async function withServer(run: (base: string) => Promise<void>): Promise<void> {
   const previous = process.env.NODE_ENV;
+  process.env.BRIDGE_INGEST_TOKEN = "local-ci-fake-token";
   process.env.NODE_ENV = "test";
   const { createHttpServer } = await import("../src/server.js");
   if (previous === undefined) delete process.env.NODE_ENV;
@@ -55,7 +56,7 @@ async function callTool(
 async function enqueue(base: string, eventId: string, source: string, text: string): Promise<void> {
   const response = await fetch(base + "/events", {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", authorization: "Bearer local-ci-fake-token" },
     body: JSON.stringify({ eventId, source, text }),
   });
   assert.equal(response.status, 201);

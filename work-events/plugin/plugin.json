@@ -1,0 +1,20 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "xlc-work-events",
+  "version": "0.1.0",
+  "description": "Let a Work chat subscribe to authenticated external messages and scheduled check-in signals for Xie Linchuan.",
+  "author": { "name": "liyanjun921" },
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "谢临川 · Work 事件桥",
+        "shortDescription": "外部消息与定时唤醒",
+        "longDescription": "订阅独立消息桥的外部消息和每 15 分钟检查信号，由当前 Work 对话决定何时联系用户。",
+        "developerName": "liyanjun921",
+        "category": "Productivity",
+        "capabilities": ["Read"],
+        "defaultPrompt": "订阅谢临川 Work 事件桥的 general.message 和 work.wake；外部消息来了就按我在此对话的指令处理，定时信号来了先判断是否适合联系我。"
+      }
+    }
+  }
+}

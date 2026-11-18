@@ -7,10 +7,12 @@ function replyRoutingFor(source: string): { replyRoute?: ReplyRoute; replyPolicy
   if (source.startsWith("netease.")) {
     return { replyRoute: "netease.chatroom", replyPolicy: "optional" };
   }
-  return {};
+  if (source.startsWith("wake.")) return {};
+  return { replyRoute: "external.inbox", replyPolicy: "required" };
 }
 
 function streamRoutingFor(source: string): { stream: BridgeStream; stateKey?: string } {
+  if (source.startsWith("wake.")) return { stream: "state", stateKey: "external.wake" };
   if (source === "netease.chatroom") return { stream: "conversation" };
   if (source.startsWith("netease.")) {
     return { stream: "state", stateKey: "netease.together.presence" };
@@ -32,7 +34,9 @@ export function buildBridgeEvent(
         "replyRoute=" + routing.replyRoute,
         "replyPolicy=" + (routing.replyPolicy ?? "optional"),
         routing.replyPolicy === "required"
-          ? "ROUTING CONTRACT (mandatory): before completing this turn, call cove_bridge_reply exactly once and put the complete user-facing reply in messages[]. A reply shown only in ChatGPT is incomplete because the user is waiting in NetEase ChatRoom. For normal conversation, default to 2-5 short natural bubbles; use one bubble only for a genuinely brief reply. Do not pack a multi-sentence reply into one bubble, and do not invent filler merely to increase the count. eventId may be omitted because the Bridge binds to the active required event. Do not use netease_together_send_message directly."
+          ? (routing.replyRoute === "external.inbox"
+              ? "ROUTING CONTRACT (mandatory): this is a message from an external client, not the ChatGPT window. Before completing this turn, call cove_bridge_reply once with messages[] so the authenticated external frontend can read your reply via the generic inbox. Do NOT send this reply to NetEase."
+              : "ROUTING CONTRACT (mandatory): before completing this turn, call cove_bridge_reply exactly once and put the complete user-facing reply in messages[]. A reply shown only in ChatGPT is incomplete because the user is waiting in NetEase ChatRoom. For normal conversation, default to 2-5 short natural bubbles; use one bubble only for a genuinely brief reply. Do not pack a multi-sentence reply into one bubble, and do not invent filler merely to increase the count. eventId may be omitted because the Bridge binds to the active required event. Do not use netease_together_send_message directly.")
           : "ROUTING CONTRACT (optional): if you choose to send a user-facing reaction for this event, deliver it through cove_bridge_reply using this exact eventId. If no reaction is useful, do not call the reply tool.",
       ]
     : [];
@@ -44,6 +48,11 @@ export function buildBridgeEvent(
         "Treat the bridged text as the current foreground user message from NetEase.",
         "Any user-facing answer to this turn must be routed back to NetEase ChatRoom through cove_bridge_reply before the turn is complete.",
       ]
+    : source.startsWith("wake.")
+      ? [
+          "WAKE ORIGIN: automatic backend event, not a message typed by the human.",
+          "Decide whether to react after checking your normal continuity context. Do not imply the user just sent a message.",
+        ]
     : source.startsWith("netease.")
       ? [
           "MESSAGE ORIGIN: NetEase Listen Together state/event stream.",
@@ -63,7 +72,7 @@ export function buildBridgeEvent(
   return {
     id,
     correlationId: id,
-    kind: "message",
+    kind: source.startsWith("wake.") ? "wake" : "message",
     source,
     ...streamRouting,
     ...routing,
