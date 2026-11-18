@@ -14,7 +14,7 @@ import { ListenerWakeScheduler } from "./listenerWakeScheduler.js";
 import { PlaybackStateStore } from "./netease/playbackState.js";
 import { createTogetherWorker } from "./netease/togetherWorker.js";
 import { InMemoryEventQueue } from "./queue.js";
-import { handleWorkEvents, handleWorkOAuth } from "./workEvents.js";
+import { handleGardenWorkEvent, handleWorkEvents, handleWorkOAuth } from "./workEvents.js";
 
 const PORT = Number(process.env.PORT ?? 8787);
 const INGEST_TOKEN = process.env.BRIDGE_INGEST_TOKEN ?? "";
@@ -115,6 +115,11 @@ export function createHttpServer() {
         ["/oauth/consent", "/oauth/consent.js", "/oauth/consent.css", "/oauth/owner",
           "/.well-known/oauth-protected-resource/mcp/work"].includes(url.pathname)) {
       await handleWorkOAuth(req, res, url.pathname);
+      return;
+    }
+    if (ISOLATED_MODE && process.env.WORK_EVENTS_ENABLED === "true" &&
+        url.pathname === "/work/garden-events") {
+      await handleGardenWorkEvent(req, res);
       return;
     }
     if (ISOLATED_MODE && process.env.WORK_EVENTS_ENABLED === "true" &&
